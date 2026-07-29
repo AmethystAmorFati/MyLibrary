@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+.kotlin/
+**/build/
+
+# Android Studio
+.idea/
+*.iml
+local.properties
+
+# Signing
+*.jks
+*.keystore
+keystore.properties
+
+# Build outputs
+*.apk
+*.aab
+app/release/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local tools
+.agents/
