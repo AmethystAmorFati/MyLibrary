@@ -14,6 +14,9 @@ import kotlinx.coroutines.withContext
 /**
  * Coordinates the deliberately non-atomic import across Room, DataStore and
  * cover files. Validation and archive extraction happen before this function.
+ *
+ * Theme restoration runs after the database commit so that individual theme
+ * failures never roll back committed business data.
  */
 internal suspend fun <Cover> executePreparedImport(
     replacementPreferences: BackupPreferences,
@@ -23,6 +26,7 @@ internal suspend fun <Cover> executePreparedImport(
     replaceDatabase: suspend (List<Cover>) -> Unit,
     cleanupOldCovers: suspend () -> Boolean,
     deleteImportedCover: suspend (Cover) -> Unit,
+    restoreThemes: suspend () -> List<BackupWarning>,
     cleanupStaging: () -> Boolean,
     onRecoveryFailure: (ImportStage, Throwable) -> Unit
 ): BackupResult {
@@ -53,6 +57,13 @@ internal suspend fun <Cover> executePreparedImport(
             cleanupOldCovers = cleanupOldCovers,
             onFailure = onRecoveryFailure
         )
+
+        stage = ImportStage.INSTALL_THEMES
+        val themeWarnings = restoreThemesSafely(
+            restoreThemes = restoreThemes,
+            onFailure = onRecoveryFailure
+        )
+
         val stagingCleaned = cleanupStagingSafely(
             cleanupStaging = cleanupStaging,
             onFailure = onRecoveryFailure
@@ -60,6 +71,7 @@ internal suspend fun <Cover> executePreparedImport(
         return BackupResult.Success(
             warnings = buildList {
                 if (!oldCoversCleaned) add(BackupWarning.OldCoverCleanupFailed)
+                addAll(themeWarnings)
                 if (!stagingCleaned) add(BackupWarning.StagingCleanupFailed)
             }
         )
@@ -195,6 +207,25 @@ private suspend fun cleanupOldCoversSafely(
 } catch (error: Throwable) {
     onFailure(ImportStage.CLEANUP_OLD_COVERS, error)
     false
+}
+
+/**
+ * Theme restoration is best-effort after the database commits.
+ * Systemic failures are converted to [BackupWarning.ThemeRestoreFailed]
+ * so that committed business data is never rolled back due to a theme
+ * issue and the user is always informed that themes were not fully
+ * restored.
+ */
+private suspend fun restoreThemesSafely(
+    restoreThemes: suspend () -> List<BackupWarning>,
+    onFailure: (ImportStage, Throwable) -> Unit
+): List<BackupWarning> = try {
+    restoreThemes()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Throwable) {
+    onFailure(ImportStage.INSTALL_THEMES, error)
+    listOf(BackupWarning.ThemeRestoreFailed)
 }
 
 private fun ImportRecoveryReport.withBackupRequirement(): ImportRecoveryReport =

@@ -75,16 +75,42 @@ class BackupArchiveValidator(
             availableCoverPaths = coverPaths
         )
 
-        val preferences = extractedFiles["preferences.json"]?.let { file ->
-            codec.decodePreferences(
-                file.readTextWithLimit(BackupArchiveLimits.MAX_PREFERENCES_BYTES)
-            ).also { validatePreferences(it, normalizedData) }
+        val preferencesFile = extractedFiles["preferences.json"]
+        val preferences = if (preferencesFile != null) {
+            val preferencesText = preferencesFile.readTextWithLimit(
+                BackupArchiveLimits.MAX_PREFERENCES_BYTES
+            )
+            // v5+ backups must explicitly include the currentThemeId key.
+            // The value may be JSON null (meaning "use default theme"), but
+            // the key itself must be present.  A missing key is a format
+            // error, not an implicit "use default".
+            if (manifest.backupSchemaVersion >= 5) {
+                require(
+                    codec.preferencesContainsCurrentThemeIdKey(preferencesText)
+                ) {
+                    "v5 backup preferences.json must contain currentThemeId"
+                }
+            }
+            codec.decodePreferences(preferencesText)
+                .also { validatePreferences(it, normalizedData) }
+        } else {
+            // v5+ backups must contain preferences.json.
+            require(manifest.backupSchemaVersion < 5) {
+                "v5 backup must contain preferences.json"
+            }
+            null
         }
+        val themeDirectories = collectThemeDirectories(
+            extractedFiles,
+            extractionDirectory.canonicalFile
+        )
         return ValidatedBackup(
             manifest = manifest,
             data = normalizedData,
             preferences = preferences,
-            coverFiles = coverPaths.associateWith { requireNotNull(extractedFiles[it]) }
+            coverFiles = coverPaths.associateWith { requireNotNull(extractedFiles[it]) },
+            themeDirectories = themeDirectories,
+            shouldRestoreThemePreference = manifest.backupSchemaVersion >= 5
         )
     }
 
@@ -229,17 +255,27 @@ class BackupArchiveValidator(
         return if (hasTrailingSlash) "$normalized/" else normalized
     }
 
-    private fun isAllowedDirectory(path: String): Boolean = path in setOf(
-        BACKUP_ROOT,
-        "${BACKUP_ROOT}covers/",
-        "${BACKUP_ROOT}covers/original/"
-    )
+    private fun isAllowedDirectory(path: String): Boolean {
+        if (path in setOf(
+            BACKUP_ROOT,
+            "${BACKUP_ROOT}covers/",
+            "${BACKUP_ROOT}covers/original/",
+            "${BACKUP_ROOT}themes/"
+        )) {
+            return true
+        }
+        if (!path.startsWith("${BACKUP_ROOT}themes/")) return false
+        val relative = path.removePrefix("${BACKUP_ROOT}themes/").removeSuffix("/")
+        val firstSegment = relative.substringBefore('/')
+        return THEME_ID_PATTERN.matches(firstSegment)
+    }
 
     private fun isAllowedFile(path: String): Boolean =
         path == "manifest.json" ||
             path == "data.json" ||
             path == "preferences.json" ||
-            isCoverPath(path)
+            isCoverPath(path) ||
+            isThemeFilePath(path)
 
     private fun isCoverPath(path: String): Boolean {
         if (!path.startsWith("covers/original/")) return false
@@ -249,10 +285,45 @@ class BackupArchiveValidator(
             fileName.matches(Regex("[A-Za-z0-9._-]+"))
     }
 
-    private fun entryLimit(path: String): Long = when (path) {
-        "manifest.json" -> BackupArchiveLimits.MAX_MANIFEST_BYTES
-        "data.json" -> BackupArchiveLimits.MAX_DATA_JSON_BYTES
-        "preferences.json" -> BackupArchiveLimits.MAX_PREFERENCES_BYTES
+    private fun isThemeFilePath(path: String): Boolean {
+        if (!path.startsWith("themes/")) return false
+        val remaining = path.removePrefix("themes/")
+        val slashIndex = remaining.indexOf('/')
+        if (slashIndex < 0) return false
+        val themeId = remaining.substring(0, slashIndex)
+        if (!THEME_ID_PATTERN.matches(themeId)) return false
+        val relativePath = remaining.substring(slashIndex + 1)
+        if (relativePath.isBlank()) return false
+        return relativePath.split('/').all { segment ->
+            segment.isNotBlank() &&
+                segment.matches(Regex("[A-Za-z0-9._-]+"))
+        }
+    }
+
+    private fun collectThemeDirectories(
+        extractedFiles: Map<String, File>,
+        extractionRoot: File
+    ): Map<String, File> {
+        val themeIds = linkedSetOf<String>()
+        extractedFiles.keys.forEach { path ->
+            if (path.startsWith("themes/")) {
+                val remaining = path.removePrefix("themes/")
+                val themeId = remaining.substringBefore('/')
+                if (themeId.isNotEmpty() && THEME_ID_PATTERN.matches(themeId)) {
+                    themeIds += themeId
+                }
+            }
+        }
+        return themeIds.associateWith { themeId ->
+            File(extractionRoot, "themes/$themeId")
+        }
+    }
+
+    private fun entryLimit(path: String): Long = when {
+        path == "manifest.json" -> BackupArchiveLimits.MAX_MANIFEST_BYTES
+        path == "data.json" -> BackupArchiveLimits.MAX_DATA_JSON_BYTES
+        path == "preferences.json" -> BackupArchiveLimits.MAX_PREFERENCES_BYTES
+        isThemeFilePath(path) -> BackupArchiveLimits.MAX_THEME_FILE_BYTES
         else -> BackupArchiveLimits.MAX_COVER_BYTES
     }
 
@@ -279,6 +350,7 @@ class BackupArchiveValidator(
 
     private companion object {
         val DRIVE_PATH = Regex("^[A-Za-z]:.*")
+        val THEME_ID_PATTERN = Regex("^[a-z0-9][a-z0-9._-]*$")
     }
 }
 
@@ -286,7 +358,9 @@ data class ValidatedBackup(
     val manifest: BackupManifest,
     val data: BackupData,
     val preferences: BackupPreferences?,
-    val coverFiles: Map<String, File>
+    val coverFiles: Map<String, File>,
+    val themeDirectories: Map<String, File> = emptyMap(),
+    val shouldRestoreThemePreference: Boolean = false
 )
 
 class NewerBackupVersionException : IllegalArgumentException()

@@ -855,7 +855,7 @@ class ThemeManagementViewModelTest {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-private class ThemeMainDispatcherRule(
+class ThemeMainDispatcherRule(
     val testDispatcher: TestDispatcher = StandardTestDispatcher()
 ) : TestWatcher() {
     override fun starting(description: Description) {

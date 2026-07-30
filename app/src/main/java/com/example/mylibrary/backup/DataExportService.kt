@@ -37,6 +37,7 @@ class DataExportService(
     private val databaseStore: BackupDatabaseStore,
     private val preferencesRepository: UserPreferencesRepository,
     private val coverImageRepository: CoverImageRepository,
+    private val themeTransfer: BackupThemeTransfer? = null,
     private val codec: BackupJsonCodec = BackupJsonCodec()
 ) {
     private val appContext = context.applicationContext
@@ -85,11 +86,26 @@ class DataExportService(
             require(dataFile.length() <= BackupArchiveLimits.MAX_DATA_JSON_BYTES) {
                 "Backup data is too large"
             }
+
+            val themeCollection = themeTransfer?.collectThemesForExport()
+            val preferencesSnapshot = preferencesRepository
+                .snapshotForBackup()
+                .copy(currentThemeId = themeCollection?.currentThemeId)
             val preferencesFile = File(tempDirectory, "preferences.json")
             preferencesFile.writeText(
-                codec.encodePreferences(preferencesRepository.snapshotForBackup()),
+                codec.encodePreferences(preferencesSnapshot),
                 Charsets.UTF_8
             )
+
+            val themeFileEntries = themeCollection
+                ?.themes
+                ?.flatMap { theme ->
+                    theme.files.map { (relativePath, file) ->
+                        val archivePath = "themes/${theme.themeId}/$relativePath"
+                        ThemeArchiveFile(archivePath, file)
+                    }
+                }
+                .orEmpty()
 
             val fileInfo = buildList {
                 add(dataFile.fileInfo("data.json"))
@@ -97,6 +113,10 @@ class DataExportService(
                 coverFiles.values.forEach { cover ->
                     coroutineContext.ensureActive()
                     add(cover.file.fileInfo(cover.archivePath))
+                }
+                themeFileEntries.forEach { entry ->
+                    coroutineContext.ensureActive()
+                    add(entry.file.fileInfo(entry.archivePath))
                 }
             }
             val manifest = BackupManifest(
@@ -126,13 +146,21 @@ class DataExportService(
                         coroutineContext.ensureActive()
                         zip.writeFile(cover.archivePath, cover.file)
                     }
+                    themeFileEntries.forEach { entry ->
+                        coroutineContext.ensureActive()
+                        zip.writeFile(entry.archivePath, entry.file)
+                    }
                 }
             }
             BackupResult.Success(
-                warnings = if (missingCoverCount > 0) {
-                    listOf(BackupWarning.MissingCovers(missingCoverCount))
-                } else {
-                    emptyList()
+                warnings = buildList {
+                    if (missingCoverCount > 0) {
+                        add(BackupWarning.MissingCovers(missingCoverCount))
+                    }
+                    val skippedThemes = themeCollection?.skippedCount ?: 0
+                    if (skippedThemes > 0) {
+                        add(BackupWarning.SkippedThemes(skippedThemes))
+                    }
                 }
             )
         } catch (cancelled: CancellationException) {
@@ -191,6 +219,11 @@ class DataExportService(
     }
 
     private data class ExportCover(
+        val archivePath: String,
+        val file: File
+    )
+
+    private data class ThemeArchiveFile(
         val archivePath: String,
         val file: File
     )

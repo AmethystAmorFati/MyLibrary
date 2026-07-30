@@ -78,6 +78,44 @@ class BackupJsonCodecTest {
     }
 
     @Test
+    fun preferencesRoundTripPreservesCustomThemeId() {
+        val source = BackupPreferences(
+            currentThemeId = "theme.abc123"
+        )
+
+        assertEquals(source, codec.decodePreferences(codec.encodePreferences(source)))
+    }
+
+    @Test
+    fun preferencesRoundTripPreservesNullThemeId() {
+        val source = BackupPreferences(
+            currentThemeId = null
+        )
+
+        assertEquals(source, codec.decodePreferences(codec.encodePreferences(source)))
+    }
+
+    @Test
+    fun legacyPreferencesWithoutThemeIdDefaultToNull() {
+        val decoded = codec.decodePreferences(
+            """
+            {
+              "useGridLayout": true,
+              "libraryViewMode": "shelf",
+              "gridColumns": 4,
+              "coverColumns": 4,
+              "timelineShowCreator": false,
+              "timelineShowRating": false,
+              "timelineShowStatus": false,
+              "listDisplayFields": ["creator"]
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(null, decoded.currentThemeId)
+    }
+
+    @Test
     fun legacyPreferencesDefaultNewQuoteAndDurationVisibilityToEnabled() {
         val decoded = codec.decodePreferences(
             """

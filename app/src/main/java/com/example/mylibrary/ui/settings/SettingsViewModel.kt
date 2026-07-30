@@ -102,19 +102,7 @@ class SettingsViewModel(
                     message = null
                 )
             }
-            val message = when (val result = backupRepository.export(uri)) {
-                is BackupResult.Success -> {
-                    val missing = result.warnings.filterIsInstance<BackupWarning.MissingCovers>()
-                        .sumOf { it.count }
-                    if (missing > 0) {
-                        "数据已导出，$missing 张缺失封面未包含在备份中"
-                    } else {
-                        "数据已导出"
-                    }
-                }
-                is BackupResult.Failure -> "导出失败"
-                BackupResult.Cancelled -> null
-            }
+            val message = exportResultMessage(backupRepository.export(uri))
             backupState.update { it.copy(operation = null, message = message) }
         }
     }
@@ -234,15 +222,54 @@ class SettingsViewModel(
             reportExportController.isBusy
 }
 
+internal fun exportResultMessage(result: BackupResult): String? = when (result) {
+    is BackupResult.Success -> {
+        val notes = buildList {
+            val missing = result.warnings
+                .filterIsInstance<BackupWarning.MissingCovers>()
+                .sumOf { it.count }
+            if (missing > 0) {
+                add("$missing 张缺失封面未包含在备份中")
+            }
+            val skippedThemes = result.warnings
+                .filterIsInstance<BackupWarning.SkippedThemes>()
+                .sumOf { it.count }
+            if (skippedThemes > 0) {
+                add("$skippedThemes 个损坏主题已跳过")
+            }
+        }
+        if (notes.isEmpty()) "数据已导出"
+        else "数据已导出，${notes.joinToString("，")}"
+    }
+    is BackupResult.Failure -> "导出失败"
+    BackupResult.Cancelled -> null
+}
+
 internal fun importResultMessage(result: BackupResult): String? = when (result) {
     is BackupResult.Success -> {
-        if (BackupWarning.StagingCleanupFailed in result.warnings) {
-            "数据导入完成，但临时文件清理失败"
-        } else if (BackupWarning.OldCoverCleanupFailed in result.warnings) {
-            "数据导入完成，但部分旧封面文件未能清理"
-        } else {
-            "数据导入完成"
+        val notes = buildList {
+            val skippedThemes = result.warnings
+                .filterIsInstance<BackupWarning.SkippedThemes>()
+                .sumOf { it.count }
+            if (skippedThemes > 0) {
+                add("$skippedThemes 个主题未能恢复")
+            }
+            if (BackupWarning.CurrentThemeUnavailable in result.warnings) {
+                add("当前主题无法恢复，已使用默认主题")
+            }
+            if (BackupWarning.ThemeRestoreFailed in result.warnings) {
+                add("主题恢复失败")
+            }
+            if (BackupWarning.OldCoverCleanupFailed in result.warnings) {
+                add("部分旧封面文件未能清理")
+            }
+            if (BackupWarning.StagingCleanupFailed in result.warnings) {
+                add("临时文件清理失败")
+            }
         }
+        if (notes.isEmpty()) "数据导入完成"
+        else if (notes.size == 1) "数据导入完成，但${notes[0]}"
+        else "数据导入完成，但${notes.joinToString("；")}"
     }
     is BackupResult.Failure -> when {
         result.recovery?.fullyRecovered == true ->

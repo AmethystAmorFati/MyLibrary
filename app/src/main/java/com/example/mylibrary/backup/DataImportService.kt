@@ -2,11 +2,11 @@ package com.example.mylibrary.backup
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import com.example.mylibrary.backup.model.BackupArchiveLimits
 import com.example.mylibrary.backup.model.BackupFailureReason
 import com.example.mylibrary.backup.model.BackupPreparationResult
 import com.example.mylibrary.backup.model.BackupResult
+import com.example.mylibrary.backup.model.BackupWarning
 import com.example.mylibrary.backup.model.ImportPreview
 import com.example.mylibrary.backup.validation.BackupArchiveValidator
 import com.example.mylibrary.backup.validation.NewerBackupVersionException
@@ -33,7 +33,9 @@ class DataImportService(
     private val databaseStore: BackupDatabaseStore,
     private val preferencesRepository: UserPreferencesRepository,
     private val coverImageRepository: CoverImageRepository,
-    private val archiveValidator: BackupArchiveValidator = BackupArchiveValidator()
+    private val themeTransfer: BackupThemeTransfer? = null,
+    private val archiveValidator: BackupArchiveValidator = BackupArchiveValidator(),
+    private val logger: BackupLogger = AndroidBackupLogger(LOG_TAG)
 ) {
     private val appContext = context.applicationContext
     private val mutex = Mutex()
@@ -134,8 +136,7 @@ class DataImportService(
                                 )
                             },
                             onFailure = { error ->
-                                Log.w(
-                                    LOG_TAG,
+                                logger.warning(
                                     "Import committed, but an old cover could not be deleted.",
                                     error
                                 )
@@ -152,6 +153,39 @@ class DataImportService(
                         cover.thumbnailPath
                     )
                 },
+                restoreThemes = {
+                    val transfer = themeTransfer
+                    if (transfer == null) {
+                        emptyList()
+                    } else if (!current.validated.shouldRestoreThemePreference) {
+                        // v1–v4 backups carry no theme semantics: do not
+                        // install, replace, or apply any theme, and do not
+                        // modify the theme preference.
+                        emptyList()
+                    } else {
+                        // v5+ backup: restore themes and current theme ID.
+                        try {
+                            val themeResult = transfer.restoreThemes(
+                                themeDirectories = current.validated.themeDirectories,
+                                currentThemeId = current.validated.preferences?.currentThemeId
+                            )
+                            buildList {
+                                if (themeResult.skippedCount > 0) {
+                                    add(BackupWarning.SkippedThemes(themeResult.skippedCount))
+                                }
+                                if (!themeResult.currentThemeRestored) {
+                                    add(BackupWarning.CurrentThemeUnavailable)
+                                }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            logger.warning("Theme restoration failed unexpectedly", error)
+                            transfer.fallbackToDefaultTheme()
+                            listOf(BackupWarning.ThemeRestoreFailed)
+                        }
+                    }
+                },
                 cleanupStaging = {
                     try {
                         cleanupWorkDirectory(current.workDirectory)
@@ -160,16 +194,14 @@ class DataImportService(
                     }
                 },
                 onRecoveryFailure = { stage, error ->
-                    Log.w(
-                        LOG_TAG,
+                    logger.warning(
                         "Backup import recovery or cleanup failed at $stage.",
                         error
                     )
                 }
             )
             if (result is BackupResult.Failure) {
-                Log.e(
-                    LOG_TAG,
+                logger.error(
                     "Backup import failed at ${result.importStage}; " +
                         "recovery=${result.recovery}.",
                     result.cause
@@ -191,11 +223,11 @@ class DataImportService(
     private fun cleanupWorkDirectory(directory: File): Boolean {
         val cleaned = runCatching { directory.deleteRecursively() }
             .onFailure { error ->
-                Log.w(LOG_TAG, "Backup staging directory cleanup failed.", error)
+                logger.warning("Backup staging directory cleanup failed.", error)
             }
             .getOrDefault(false)
         if (!cleaned && directory.exists()) {
-            Log.w(LOG_TAG, "Backup staging directory remains: ${directory.name}")
+            logger.warning("Backup staging directory remains: ${directory.name}")
         }
         return cleaned
     }

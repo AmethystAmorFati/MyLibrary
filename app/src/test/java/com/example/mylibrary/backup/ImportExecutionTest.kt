@@ -34,6 +34,7 @@ class ImportExecutionTest {
                 true
             },
             deleteImportedCover = { events += "rollback-cover:$it" },
+            restoreThemes = { emptyList() },
             cleanupStaging = {
                 events += "staging-cleanup"
                 true
@@ -135,6 +136,7 @@ class ImportExecutionTest {
             replaceDatabase = { databaseWritten = true },
             cleanupOldCovers = { true },
             deleteImportedCover = {},
+            restoreThemes = { emptyList() },
             cleanupStaging = { true },
             onRecoveryFailure = { _, _ -> }
         )
@@ -195,6 +197,7 @@ class ImportExecutionTest {
                         true
                     },
                     deleteImportedCover = { events += "rollback-cover" },
+                    restoreThemes = { emptyList() },
                     cleanupStaging = {
                         events += "staging-cleanup"
                         true
@@ -223,6 +226,7 @@ class ImportExecutionTest {
                 replaceDatabase = { events += "database" },
                 cleanupOldCovers = { cancel() },
                 deleteImportedCover = { events += "rollback-cover" },
+                restoreThemes = { emptyList() },
                 cleanupStaging = {
                     events += "staging-cleanup"
                     true
@@ -238,11 +242,127 @@ class ImportExecutionTest {
         }
     }
 
+    @Test
+    fun themeWarningsAreIncludedInSuccessResult() = runTest {
+        val result = execute(
+            restoreThemes = {
+                listOf(
+                    BackupWarning.SkippedThemes(2),
+                    BackupWarning.CurrentThemeUnavailable
+                )
+            }
+        )
+
+        val success = result as BackupResult.Success
+        assertTrue(BackupWarning.SkippedThemes(2) in success.warnings)
+        assertTrue(BackupWarning.CurrentThemeUnavailable in success.warnings)
+    }
+
+    @Test
+    fun themeRestorationRunsAfterDatabaseCommit() = runTest {
+        val events = mutableListOf<String>()
+        execute(
+            replaceDatabase = { events += "database" },
+            restoreThemes = {
+                events += "themes"
+                emptyList()
+            }
+        )
+        assertEquals(listOf("database", "themes"), events)
+    }
+
+    @Test
+    fun themeRestorationFailureDoesNotBlockDataRestore() = runTest {
+        val result = execute(
+            restoreThemes = { error("theme installation crashed") }
+        )
+
+        assertTrue(result is BackupResult.Success)
+        val success = result as BackupResult.Success
+        assertTrue(BackupWarning.ThemeRestoreFailed in success.warnings)
+        // Result must not look like a complete success
+        assertTrue(success.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun themeRestorationExceptionPreservesCommittedBusinessData() = runTest {
+        val events = mutableListOf<String>()
+        val result = execute(
+            replaceDatabase = { events += "database" },
+            restoreThemes = {
+                events += "themes"
+                error("theme installation crashed")
+            }
+        )
+
+        assertTrue(result is BackupResult.Success)
+        val success = result as BackupResult.Success
+        assertTrue(BackupWarning.ThemeRestoreFailed in success.warnings)
+        // Business data was committed before theme restoration was attempted
+        assertEquals(listOf("database", "themes"), events)
+    }
+
+    @Test
+    fun cancellationDuringThemeRestorationStillCleansUpStaging() = runTest {
+        val events = mutableListOf<String>()
+        try {
+            execute(
+                restoreThemes = {
+                    events += "themes"
+                    cancel()
+                },
+                cleanupStaging = {
+                    events += "staging-cleanup"
+                    true
+                }
+            )
+            error("Expected cancellation")
+        } catch (_: CancellationException) {
+            assertTrue("staging-cleanup" in events)
+        }
+    }
+
+    @Test
+    fun cancellationDuringThemeRestorationDoesNotProduceThemeRestoreFailed() =
+        runTest {
+            var result: BackupResult? = null
+            try {
+                result = execute(
+                    restoreThemes = { cancel() }
+                )
+            } catch (_: CancellationException) {
+                // Expected: cancellation propagates
+            }
+
+            // Result must not be Success with ThemeRestoreFailed
+            assertTrue(result !is BackupResult.Success)
+            if (result is BackupResult.Success) {
+                assertTrue(
+                    BackupWarning.ThemeRestoreFailed !in result.warnings
+                )
+            }
+        }
+
+    @Test
+    fun ordinaryExceptionDuringThemeRestorationStillProducesThemeRestoreFailed() =
+        runTest {
+            val result = execute(
+                restoreThemes = { throw IllegalStateException("boom") }
+            )
+
+            assertTrue(result is BackupResult.Success)
+            assertTrue(
+                BackupWarning.ThemeRestoreFailed in
+                    (result as BackupResult.Success).warnings
+            )
+        }
+
     private suspend fun execute(
         replacePreferences: suspend (BackupPreferences) -> Unit = {},
         replaceDatabase: suspend (List<String>) -> Unit = {},
         deleteImportedCover: suspend (String) -> Unit = {},
-        cleanupStaging: () -> Boolean = { true }
+        cleanupStaging: () -> Boolean = { true },
+        restoreThemes: suspend () -> List<BackupWarning> = { emptyList() }
     ): BackupResult = executePreparedImport(
         replacementPreferences = newPreferences,
         snapshotPreferences = { oldPreferences },
@@ -251,6 +371,7 @@ class ImportExecutionTest {
         replaceDatabase = replaceDatabase,
         cleanupOldCovers = { true },
         deleteImportedCover = deleteImportedCover,
+        restoreThemes = restoreThemes,
         cleanupStaging = cleanupStaging,
         onRecoveryFailure = { _, _ -> }
     )

@@ -2,7 +2,7 @@ package com.example.mylibrary.backup.model
 
 import com.example.mylibrary.domain.model.CoverStorageLimits
 
-const val CURRENT_BACKUP_SCHEMA_VERSION = 4
+const val CURRENT_BACKUP_SCHEMA_VERSION = 5
 const val BACKUP_FORMAT = "mylibrary-backup"
 const val BACKUP_ROOT = "MyLibraryBackup/"
 
@@ -36,7 +36,8 @@ data class BackupPreferences(
     val libraryShowTotalDuration: Boolean = true,
     val showQuoteChapter: Boolean = true,
     val showQuotePage: Boolean = true,
-    val listDisplayFields: Set<String> = setOf("creator")
+    val listDisplayFields: Set<String> = setOf("creator"),
+    val currentThemeId: String? = null
 )
 
 data class BackupData(
@@ -211,6 +212,9 @@ sealed interface BackupWarning {
     data class MissingCovers(val count: Int) : BackupWarning
     data object OldCoverCleanupFailed : BackupWarning
     data object StagingCleanupFailed : BackupWarning
+    data class SkippedThemes(val count: Int) : BackupWarning
+    data object CurrentThemeUnavailable : BackupWarning
+    data object ThemeRestoreFailed : BackupWarning
 }
 
 enum class ImportStage {
@@ -219,6 +223,7 @@ enum class ImportStage {
     WRITE_PREFERENCES,
     REPLACE_DATABASE,
     CLEANUP_OLD_COVERS,
+    INSTALL_THEMES,
     CLEANUP_STAGING
 }
 
@@ -257,6 +262,26 @@ object BackupArchiveLimits {
     const val MAX_DATA_JSON_BYTES = 64L * 1024 * 1024
     const val MAX_PREFERENCES_BYTES = 1L * 1024 * 1024
     const val MAX_COVER_BYTES = CoverStorageLimits.MAX_SOURCE_BYTES
+
+    /**
+     * Per-file extraction limit applied to every entry under `themes/`.
+     *
+     * This value (32 MiB) is the maximum legal single-file size across all
+     * theme resource types defined in [com.example.mylibrary.ui.theme.ThemeResourceLimits]:
+     * - Background image: 12 MiB (`MAX_BACKGROUND_IMAGE_FILE_BYTES`)
+     * - Card image: 8 MiB (`MAX_CARD_IMAGE_FILE_BYTES`)
+     * - Dialog image: 8 MiB (`MAX_DIALOG_IMAGE_FILE_BYTES`)
+     * - Navigation icon: 512 KiB (`MAX_NAVIGATION_IMAGE_FILE_BYTES`)
+     * - Single font: 32 MiB (`MAX_SINGLE_FONT_FILE_BYTES`)
+     *
+     * No legal theme resource file can exceed 32 MiB, so this limit acts as
+     * a safe extraction guard without rejecting any installable theme.
+     * [com.example.mylibrary.ui.theme.importer.ThemeInstaller] still
+     * performs the final per-type classification and size enforcement
+     * during restore, so backup validation never needs to duplicate the
+     * type-specific rules.
+     */
+    const val MAX_THEME_FILE_BYTES = 32L * 1024 * 1024
     const val MAX_ARCHIVE_BYTES = 512L * 1024 * 1024
     const val MAX_TOTAL_EXTRACTED_BYTES = 512L * 1024 * 1024
 }

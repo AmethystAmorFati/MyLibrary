@@ -20,7 +20,8 @@ class BackupMigrationChain(
     migrations: List<BackupMigration> = listOf(
         BackupMigration1To2,
         BackupMigration2To3,
-        BackupMigration3To4
+        BackupMigration3To4,
+        BackupMigration4To5
     )
 ) {
     private val migrationsByVersion = migrations.associateBy { it.fromVersion }
@@ -167,4 +168,17 @@ object BackupMigration1To2 : BackupMigration {
         )
         return JsonObject(source + ("fieldDefinitions" to migratedFields))
     }
+}
+
+/**
+ * Schema v5 adds theme backup support. The data.json structure is unchanged;
+ * the only addition is the optional `currentThemeId` field in preferences.json,
+ * which defaults to `null` when absent. Therefore this migration is an identity
+ * pass on the data object.
+ */
+object BackupMigration4To5 : BackupMigration {
+    override val fromVersion: Int = 4
+    override val toVersion: Int = 5
+
+    override fun migrate(source: JsonObject): JsonObject = source
 }

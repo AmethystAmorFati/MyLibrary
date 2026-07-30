@@ -5,6 +5,7 @@ import com.example.mylibrary.data.preferences.DataStoreThemePreferenceStore
 import com.example.mylibrary.data.preferences.ThemePreferenceStore
 import com.example.mylibrary.backup.BackupDatabaseStore
 import com.example.mylibrary.backup.BackupRepository
+import com.example.mylibrary.backup.BackupThemeTransfer
 import com.example.mylibrary.backup.DataExportService
 import com.example.mylibrary.backup.DataImportService
 import com.example.mylibrary.data.database.LibraryDatabase
@@ -289,18 +290,29 @@ class DefaultAppContainer(
         empty = EmptyTrashUseCase(trashRepository)
     )
 
+    private val backupThemeTransfer = BackupThemeTransfer(
+        installedDirectory = themeInstaller.installedDirectory,
+        themeInstaller = themeInstaller,
+        installedThemeCatalog = installedThemeCatalog,
+        themePreferenceStore = themePreferenceStore,
+        themeRepository = themeRepository,
+        generationSource = themeGenerationSource::next
+    )
+
     override val backupRepository = BackupRepository(
         exportService = DataExportService(
             context = context,
             databaseStore = backupDatabaseStore,
             preferencesRepository = userPreferencesRepository,
-            coverImageRepository = coverImageRepository
+            coverImageRepository = coverImageRepository,
+            themeTransfer = backupThemeTransfer
         ),
         importService = DataImportService(
             context = context,
             databaseStore = backupDatabaseStore,
             preferencesRepository = userPreferencesRepository,
-            coverImageRepository = coverImageRepository
+            coverImageRepository = coverImageRepository,
+            themeTransfer = backupThemeTransfer
         )
     )
 }

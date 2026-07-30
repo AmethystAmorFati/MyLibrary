@@ -103,6 +103,7 @@ class BackupJsonCodec(
             put("showQuoteChapter", preferences.showQuoteChapter)
             put("showQuotePage", preferences.showQuotePage)
             put("listDisplayFields", strings(preferences.listDisplayFields.sorted()))
+            putNullable("currentThemeId", preferences.currentThemeId)
         }
     )
 
@@ -123,8 +124,21 @@ class BackupJsonCodec(
             showQuoteChapter = root.optionalBoolean("showQuoteChapter") ?: true,
             showQuotePage = root.optionalBoolean("showQuotePage") ?: true,
             listDisplayFields = root.requiredArray("listDisplayFields")
-                .mapTo(linkedSetOf()) { it.jsonPrimitive.content }
+                .mapTo(linkedSetOf()) { it.jsonPrimitive.content },
+            currentThemeId = root.optionalString("currentThemeId")
         )
+    }
+
+    /**
+     * Checks whether the preferences JSON object explicitly contains the
+     * `currentThemeId` key.  The value may be JSON null; only the key
+     * presence matters.  This distinguishes v5 backups that explicitly
+     * save `currentThemeId: null` (meaning "use default theme") from
+     * backups where the key is absent (treated as a format error for v5).
+     */
+    fun preferencesContainsCurrentThemeIdKey(source: String): Boolean {
+        val root = parseObject(source)
+        return "currentThemeId" in root
     }
 
     fun encodeData(data: BackupData): String = json.encodeToString(
