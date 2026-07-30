@@ -29,13 +29,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.mylibrary.domain.model.DynamicFieldDefinition
 import com.example.mylibrary.domain.model.FieldAggregation
 import com.example.mylibrary.domain.model.ItemType
+import com.example.mylibrary.domain.model.ItemTypeKind
 import com.example.mylibrary.domain.model.LibraryStatus
+import com.example.mylibrary.domain.model.StatusScope
 import com.example.mylibrary.domain.model.compatibleWith
+import com.example.mylibrary.export.visual.AnnualPosterCategory
 import com.example.mylibrary.ui.components.AppWheelPicker
 import com.example.mylibrary.ui.components.AppThemeSurface
 import com.example.mylibrary.ui.components.noRippleClickable
@@ -61,10 +66,13 @@ fun SettingsActionDialog(
     onChooseImportFile: () -> Unit,
     onConfirmAction: (SettingsExportRequest) -> Unit
 ) {
-    val now = LocalDate.now()
-    var year by remember(kind) { mutableIntStateOf(now.year) }
-    var month by remember(kind) { mutableIntStateOf(now.monthValue) }
+    val defaults = remember(kind) { defaultVisualExportDialogValues() }
+    var year by remember(kind) { mutableIntStateOf(defaults.year) }
+    var month by remember(kind) { mutableIntStateOf(defaults.month) }
     var selectedTypeId by remember(kind) { mutableStateOf<Long?>(null) }
+    var annualPosterCategory by remember(kind) {
+        mutableStateOf(defaults.annualCategory)
+    }
     var selectedStatistics by remember(kind) {
         mutableStateOf(DEFAULT_REPORT_STATISTICS)
     }
@@ -80,6 +88,12 @@ fun SettingsActionDialog(
         mutableStateOf(emptySet<ReportStatisticSelection>())
     }
     var includeQuotes by remember(kind) { mutableStateOf(false) }
+    var showcaseStyle by remember(kind) {
+        mutableStateOf(ReportShowcaseStyle.COLLAGE)
+    }
+    var reportOutputFormat by remember(kind) {
+        mutableStateOf(ReportOutputFormat.PDF)
+    }
     var configMessage by remember(kind) { mutableStateOf<String?>(null) }
 
     val title = when (kind) {
@@ -90,12 +104,18 @@ fun SettingsActionDialog(
         SettingsDialogKind.EXPORT_MONTHLY_REPORT -> "导出月度报告"
         SettingsDialogKind.EXPORT_YEARLY_REPORT -> "导出年度报告"
     }
-    val confirm = if (kind == SettingsDialogKind.IMPORT_DATA) "选择文件" else "导出"
+    val confirm = when (kind) {
+        SettingsDialogKind.IMPORT_DATA -> "选择文件"
+        SettingsDialogKind.EXPORT_CALENDAR_PAGE,
+        SettingsDialogKind.EXPORT_YEAR_POSTER -> "导出"
+        else -> "导出"
+    }
 
     ConfigDialog(
         title = title,
         tag = "settings_dialog_${kind.name.lowercase()}",
         confirmText = confirm,
+        confirmEnabled = !state.isVisualExportBusy && !state.isReportExportBusy,
         onDismiss = onDismiss,
         onConfirm = confirm@{
             if (kind == SettingsDialogKind.IMPORT_DATA) {
@@ -108,7 +128,7 @@ fun SettingsActionDialog(
                     SettingsDialogKind.EXPORT_CALENDAR_PAGE ->
                         SettingsExportRequest.CalendarPage(year, month)
                     SettingsDialogKind.EXPORT_YEAR_POSTER ->
-                        SettingsExportRequest.YearPoster(year, selectedTypeId)
+                        SettingsExportRequest.YearPoster(year, annualPosterCategory)
                     SettingsDialogKind.EXPORT_MONTHLY_REPORT,
                     SettingsDialogKind.EXPORT_YEARLY_REPORT -> {
                         val cleaned = validReportSelections(
@@ -129,7 +149,9 @@ fun SettingsActionDialog(
                             statusIds = selectedStatusIds,
                             workCustomFieldIds = cleaned.workCustomFieldIds,
                             statisticSelections = cleaned.statisticSelections,
-                            includeQuotes = includeQuotes
+                            includeQuotes = includeQuotes,
+                            showcaseStyle = showcaseStyle,
+                            outputFormat = reportOutputFormat
                         )
                         if (!reportConfig.hasContent()) {
                             configMessage = EMPTY_REPORT_CONTENT_MESSAGE
@@ -172,10 +194,9 @@ fun SettingsActionDialog(
                     onMonthSelected = { month = it }
                 )
                 Spacer(Modifier.height(12.dp))
-                CategoryOptions(
-                    types = state.types,
-                    selectedTypeId = selectedTypeId,
-                    onSelected = { selectedTypeId = it }
+                AnnualPosterCategoryOptions(
+                    selected = annualPosterCategory,
+                    onSelected = { annualPosterCategory = it }
                 )
             }
             SettingsDialogKind.EXPORT_MONTHLY_REPORT,
@@ -189,30 +210,39 @@ fun SettingsActionDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 CategoryOptions(
-                    types = state.types,
+                    types = state.types.filter {
+                        it.id == ItemTypeKind.BOOK_TYPE_ID ||
+                            it.id == ItemTypeKind.MOVIE_TYPE_ID
+                    },
                     selectedTypeId = selectedTypeId,
-                    onSelected = { nextTypeId ->
-                        selectedTypeId = nextTypeId
+                    onSelected = { typeId ->
+                        selectedTypeId = typeId
                         val cleaned = validReportSelections(
-                            workCustomFieldIds = selectedWorkCustomFieldIds,
-                            statisticSelections = selectedStatisticSelections,
-                            fields = state.dynamicFields,
-                            typeId = nextTypeId
+                            selectedWorkCustomFieldIds,
+                            selectedStatisticSelections,
+                            state.dynamicFields,
+                            typeId
                         )
                         selectedWorkCustomFieldIds = cleaned.workCustomFieldIds
                         selectedStatisticSelections = cleaned.statisticSelections
-                        configMessage = null
                     }
                 )
+                Spacer(Modifier.height(12.dp))
                 ReportOptions(
+                    isYearly = kind == SettingsDialogKind.EXPORT_YEARLY_REPORT,
                     statuses = state.statuses,
-                    types = state.types,
+                    types = state.types.filter {
+                        it.id == ItemTypeKind.BOOK_TYPE_ID ||
+                            it.id == ItemTypeKind.MOVIE_TYPE_ID
+                    },
                     fields = state.dynamicFields,
                     selectedTypeId = selectedTypeId,
                     selectedStatistics = selectedStatistics,
                     onStatisticsChanged = { selectedStatistics = it },
                     selectedWorkFields = selectedWorkFields,
                     onWorkFieldsChanged = { selectedWorkFields = it },
+                    showcaseStyle = showcaseStyle,
+                    onShowcaseStyleChanged = { showcaseStyle = it },
                     includeAllStatuses = includeAllStatuses,
                     onIncludeAllStatusesChanged = { includeAllStatuses = it },
                     selectedStatusIds = selectedStatusIds,
@@ -220,16 +250,19 @@ fun SettingsActionDialog(
                     selectedWorkCustomFieldIds = selectedWorkCustomFieldIds,
                     onWorkCustomFieldIdsChanged = {
                         selectedWorkCustomFieldIds = it
-                        configMessage = null
                     },
                     selectedStatisticSelections = selectedStatisticSelections,
                     onStatisticSelectionsChanged = {
                         selectedStatisticSelections = it
-                        configMessage = null
                     },
                     includeQuotes = includeQuotes,
                     onIncludeQuotesChanged = { includeQuotes = it },
                     onMessage = { configMessage = it }
+                )
+                Spacer(Modifier.height(12.dp))
+                ReportFormatOptions(
+                    selected = reportOutputFormat,
+                    onSelected = { reportOutputFormat = it }
                 )
                 configMessage?.let { message ->
                     Text(
@@ -245,10 +278,54 @@ fun SettingsActionDialog(
 }
 
 @Composable
+private fun ReportFormatOptions(
+    selected: ReportOutputFormat,
+    onSelected: (ReportOutputFormat) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("export_report_formats"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ReportOutputFormat.entries.forEach { format ->
+            val isSelected = format == selected
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .noRippleClickable { onSelected(format) }
+                    .semantics { this.selected = isSelected }
+                    .testTag("export_report_format_${format.name.lowercase()}"),
+                color = if (isSelected) {
+                    AppTheme.colors.accent
+                } else {
+                    AppTheme.colors.subtleCard
+                },
+                contentColor = if (isSelected) {
+                    AppTheme.colors.onAccent
+                } else {
+                    AppTheme.colors.textSecondary
+                },
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Box(
+                    modifier = Modifier.padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(format.name, style = AppTheme.typography.metadata)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ConfigDialog(
     title: String,
     tag: String,
     confirmText: String,
+    confirmEnabled: Boolean = true,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
@@ -295,7 +372,62 @@ private fun ConfigDialog(
                 ) {
                     DialogTextButton("取消", onDismiss)
                     Spacer(Modifier.size(18.dp))
-                    DialogTextButton(confirmText, onConfirm, accent = true)
+                    DialogTextButton(
+                        confirmText,
+                        onConfirm,
+                        accent = true,
+                        enabled = confirmEnabled
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnnualPosterCategoryOptions(
+    selected: AnnualPosterCategory,
+    onSelected: (AnnualPosterCategory) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("export_annual_categories"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        listOf(
+            AnnualPosterCategory.ALL to "全部",
+            AnnualPosterCategory.BOOK to "书籍",
+            AnnualPosterCategory.MOVIE to "电影"
+        ).forEach { (category, label) ->
+            val isSelected = category == selected
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .noRippleClickable { onSelected(category) }
+                    .semantics { this.selected = isSelected }
+                    .testTag("export_annual_category_${category.name.lowercase()}"),
+                color = if (isSelected) {
+                    AppTheme.colors.accent
+                } else {
+                    AppTheme.colors.subtleCard
+                },
+                contentColor = if (isSelected) {
+                    AppTheme.colors.onAccent
+                } else {
+                    AppTheme.colors.textSecondary
+                },
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Box(
+                    modifier = Modifier.padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        style = AppTheme.typography.metadata
+                    )
                 }
             }
         }
@@ -359,6 +491,7 @@ private fun CategoryOptions(
 
 @Composable
 private fun ReportOptions(
+    isYearly: Boolean,
     statuses: List<LibraryStatus>,
     types: List<ItemType>,
     fields: List<DynamicFieldDefinition>,
@@ -367,6 +500,8 @@ private fun ReportOptions(
     onStatisticsChanged: (Set<ReportStatisticOption>) -> Unit,
     selectedWorkFields: Set<ReportWorkOption>,
     onWorkFieldsChanged: (Set<ReportWorkOption>) -> Unit,
+    showcaseStyle: ReportShowcaseStyle,
+    onShowcaseStyleChanged: (ReportShowcaseStyle) -> Unit,
     includeAllStatuses: Boolean,
     onIncludeAllStatusesChanged: (Boolean) -> Unit,
     selectedStatusIds: Set<Long>,
@@ -380,50 +515,30 @@ private fun ReportOptions(
     onMessage: (String) -> Unit
 ) {
     OptionGroup("基础统计", tag = "export_group_statistics") {
-        MultiOption(
-            text = "阅读 / 观看数量",
-            value = ReportStatisticOption.ITEM_COUNT,
-            selected = selectedStatistics,
-            onChanged = onStatisticsChanged
+        SquareOptionRow(
+            text = "基础统计",
+            selected = selectedStatistics.any { it in BASIC_REPORT_STATISTICS },
+            tag = "export_option_basic_statistics",
+            onClick = {
+                onStatisticsChanged(
+                    if (selectedStatistics.any { it in BASIC_REPORT_STATISTICS }) {
+                        selectedStatistics - BASIC_REPORT_STATISTICS
+                    } else {
+                        selectedStatistics + BASIC_REPORT_STATISTICS
+                    }
+                )
+            }
         )
-        MultiOption(
-            text = "记录数量",
-            value = ReportStatisticOption.RECORD_COUNT,
-            selected = selectedStatistics,
-            onChanged = onStatisticsChanged
-        )
-        MultiOption(
-            text = "阅读 / 观看天数",
-            value = ReportStatisticOption.ACTIVITY_DAYS,
-            selected = selectedStatistics,
-            onChanged = onStatisticsChanged
-        )
+    }
+    OptionGroup("标签统计", tag = "export_group_tag_statistics") {
         MultiOption(
             text = "标签统计",
             value = ReportStatisticOption.TAGS,
             selected = selectedStatistics,
             onChanged = onStatisticsChanged
         )
-        MultiOption(
-            text = "作者统计",
-            value = ReportStatisticOption.CREATORS,
-            selected = selectedStatistics,
-            onChanged = onStatisticsChanged
-        )
-        MultiOption(
-            text = "阅读 / 观看天数前三",
-            value = ReportStatisticOption.TOP_ACTIVITY_DAYS,
-            selected = selectedStatistics,
-            onChanged = onStatisticsChanged
-        )
-        MultiOption(
-            text = "摘录数量",
-            value = ReportStatisticOption.QUOTE_COUNT,
-            selected = selectedStatistics,
-            onChanged = onStatisticsChanged
-        )
     }
-    OptionGroup("自定义字段统计", tag = "export_group_field_statistics") {
+    OptionGroup("自定义信息统计", tag = "export_group_field_statistics") {
         val statisticFields = availableReportStatisticFields(fields, selectedTypeId)
         ReportFieldGroups(
             types = types,
@@ -449,73 +564,64 @@ private fun ReportOptions(
                 }
         }
     }
-    OptionGroup("作品信息", tag = "export_group_works") {
-        MultiOption(
-            text = "封面",
-            value = ReportWorkOption.COVER,
-            selected = selectedWorkFields,
-            onChanged = onWorkFieldsChanged
-        )
-        MultiOption(
-            text = "书名 / 片名",
-            value = ReportWorkOption.TITLE,
-            selected = selectedWorkFields,
-            onChanged = onWorkFieldsChanged
-        )
-        MultiOption(
-            text = "作者 / 导演",
-            value = ReportWorkOption.CREATOR,
-            selected = selectedWorkFields,
-            onChanged = onWorkFieldsChanged
-        )
-        MultiOption(
-            text = "状态",
-            value = ReportWorkOption.STATUS,
-            selected = selectedWorkFields,
-            onChanged = onWorkFieldsChanged
-        )
-        MultiOption(
-            text = "标签",
-            value = ReportWorkOption.TAGS,
-            selected = selectedWorkFields,
-            onChanged = onWorkFieldsChanged
-        )
-    }
-    OptionGroup("作品自定义字段", tag = "export_group_work_fields") {
-        val workFields = availableReportWorkFields(fields, selectedTypeId)
-        ReportFieldGroups(
-            types = types,
-            fields = workFields,
-            showTypeTitle = selectedTypeId == null
-        ) { field ->
+    if (!isYearly) {
+        OptionGroup("作品展示", tag = "export_group_works") {
             SquareOptionRow(
-                text = field.reportLabel(),
-                selected = field.id in selectedWorkCustomFieldIds,
-                tag = "export_work_field_${field.id}",
+                text = "作品展示",
+                selected = selectedWorkFields.isNotEmpty(),
+                tag = "export_option_item_information",
                 onClick = {
-                    when (
-                        val result = toggleWorkCustomField(
-                            selectedWorkCustomFieldIds,
-                            field.id
-                        )
-                    ) {
-                        is WorkCustomFieldToggleResult.Updated ->
-                            onWorkCustomFieldIdsChanged(result.selectedIds)
-                        is WorkCustomFieldToggleResult.Rejected ->
-                            onMessage(result.message)
+                    if (selectedWorkFields.isEmpty()) {
+                        onWorkFieldsChanged(DEFAULT_REPORT_WORK_FIELDS)
+                    } else {
+                        onWorkFieldsChanged(emptySet())
                     }
                 }
             )
+            if (selectedWorkFields.isNotEmpty()) {
+                ReportShowcaseStyleOptions(
+                    selected = showcaseStyle,
+                    onSelected = onShowcaseStyleChanged
+                )
+            }
+        }
+        OptionGroup("作品的自定义信息", tag = "export_group_work_fields") {
+            val workFields = availableReportWorkFields(fields, selectedTypeId)
+            ReportFieldGroups(
+                types = types,
+                fields = workFields,
+                showTypeTitle = selectedTypeId == null
+            ) { field ->
+                SquareOptionRow(
+                    text = field.reportLabel(),
+                    selected = field.id in selectedWorkCustomFieldIds,
+                    tag = "export_work_field_${field.id}",
+                    onClick = {
+                        when (
+                            val result = toggleWorkCustomField(
+                                selectedWorkCustomFieldIds,
+                                field.id
+                            )
+                        ) {
+                            is WorkCustomFieldToggleResult.Updated -> {
+                                onWorkCustomFieldIdsChanged(result.selectedIds)
+                            }
+                            is WorkCustomFieldToggleResult.Rejected ->
+                                onMessage(result.message)
+                        }
+                    }
+                )
+            }
         }
     }
-    OptionGroup("状态", tag = "export_group_statuses") {
+    OptionGroup("作品状态", tag = "export_group_statuses") {
         SquareOptionRow(
-            text = "所有状态统计",
+            text = "全部当前状态",
             selected = includeAllStatuses,
             tag = "export_option_all_statuses",
             onClick = { onIncludeAllStatusesChanged(!includeAllStatuses) }
         )
-        statuses.forEach { status ->
+        statuses.filter { it.scope == StatusScope.ITEM }.forEach { status ->
             MultiOption(
                 text = status.name,
                 value = status.id,
@@ -532,6 +638,52 @@ private fun ReportOptions(
             tag = "export_option_quotes",
             onClick = { onIncludeQuotesChanged(!includeQuotes) }
         )
+    }
+}
+
+@Composable
+private fun ReportShowcaseStyleOptions(
+    selected: ReportShowcaseStyle,
+    onSelected: (ReportShowcaseStyle) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("export_report_showcase_styles"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        listOf(
+            ReportShowcaseStyle.COLLAGE to "拼图",
+            ReportShowcaseStyle.GRID to "网格"
+        ).forEach { (style, label) ->
+            val isSelected = style == selected
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .noRippleClickable { onSelected(style) }
+                    .semantics { this.selected = isSelected }
+                    .testTag("export_report_showcase_${style.name.lowercase()}"),
+                color = if (isSelected) {
+                    AppTheme.colors.accent
+                } else {
+                    AppTheme.colors.subtleCard
+                },
+                contentColor = if (isSelected) {
+                    AppTheme.colors.onAccent
+                } else {
+                    AppTheme.colors.textSecondary
+                },
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Box(
+                    modifier = Modifier.padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, style = AppTheme.typography.metadata)
+                }
+            }
+        }
     }
 }
 
@@ -691,14 +843,19 @@ private fun SquareOptionRow(
 private fun DialogTextButton(
     text: String,
     onClick: () -> Unit,
-    accent: Boolean = false
+    accent: Boolean = false,
+    enabled: Boolean = true
 ) {
     Text(
         text = text,
         modifier = Modifier
             .padding(horizontal = 6.dp, vertical = 10.dp)
-            .noRippleClickable(onClick = onClick),
+            .noRippleClickable(enabled = enabled, onClick = onClick),
         style = AppTheme.typography.button,
-        color = if (accent) AppTheme.colors.accent else AppTheme.colors.textSecondary
+        color = when {
+            !enabled -> AppTheme.colors.mutedText
+            accent -> AppTheme.colors.accent
+            else -> AppTheme.colors.textSecondary
+        }
     )
 }

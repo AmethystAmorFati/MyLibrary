@@ -43,10 +43,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.mylibrary.domain.model.LibraryActivity
+import com.example.mylibrary.ui.components.alignedThemeBackground
 import com.example.mylibrary.ui.components.noRippleClickable
 import com.example.mylibrary.ui.navigation.AppNavigationTransitions
 import com.example.mylibrary.ui.theme.AppTheme
-import com.example.mylibrary.ui.theme.SurfaceRole
 import com.example.mylibrary.ui.theme.CalendarAnchorThreshold
 import com.example.mylibrary.ui.theme.CalendarCellAspectRatio
 import com.example.mylibrary.ui.theme.CalendarCollapsedHeight
@@ -152,10 +152,14 @@ fun HomeCalendarOverlay(
         modifier = modifier
             .fillMaxWidth()
             .height(currentHeight)
-            // This opaque mask prevents timeline rows from showing through the
-            // expanding overlay. It deliberately uses only the fallback color;
-            // the full-screen BACKGROUND image is not restarted inside the page.
-            .background(AppTheme.surface(SurfaceRole.BACKGROUND).fallbackColor)
+            // The aligned background draws the same BACKGROUND surface (COLOR
+            // or IMAGE) as the root page, using the root viewport size for
+            // image cropping and translating to this overlay's position.
+            // This ensures the calendar shows the exact slice of the background
+            // image that appears behind it, with no independent re-cropping.
+            // For COLOR backgrounds the opaque composite color fully occludes
+            // the timeline beneath.
+            .alignedThemeBackground()
             .clipToBounds()
             .anchoredDraggable(
                 state = dragState,

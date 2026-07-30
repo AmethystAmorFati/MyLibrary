@@ -22,13 +22,23 @@ internal enum class StarFillState {
 }
 
 internal fun starFillState(ratingHalfStars: Int?, starNumber: Int): StarFillState {
-    require(starNumber in 1..5) { "starNumber must be in 1..5" }
-    val value = ratingHalfStars ?: return StarFillState.EMPTY
-    val fullThreshold = starNumber * 2
-    val halfThreshold = fullThreshold - 1
-    return when {
-        value >= fullThreshold -> StarFillState.FULL
-        value == halfThreshold -> StarFillState.HALF
+    val fraction = starFillFraction(ratingHalfStars, starNumber)
+    return when (fraction) {
+        1f -> StarFillState.FULL
+        0.5f -> StarFillState.HALF
         else -> StarFillState.EMPTY
     }
 }
+
+internal fun starFillFraction(
+    ratingHalfStars: Int?,
+    starNumber: Int
+): Float {
+    require(starNumber in 1..5) { "starNumber must be in 1..5" }
+    val value = ratingHalfStars ?: return 0f
+    val lowerBound = (starNumber - 1) * 2
+    return ((value - lowerBound) / 2f).coerceIn(0f, 1f)
+}
+
+internal fun ratingStarFillFractions(ratingHalfStars: Int?): List<Float> =
+    (1..5).map { starFillFraction(ratingHalfStars, it) }

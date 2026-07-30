@@ -24,12 +24,14 @@ fun AppThemeSurface(
     containerAlpha: Float = 1f,
     drawImageSurface: Boolean = true,
     forceOpaqueFallback: Boolean = false,
+    compositeOverBaseColor: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val surface = resolvedThemeSurfaceForContainer(
         surface = AppTheme.surface(role),
         drawImageSurface = drawImageSurface,
-        forceOpaqueFallback = forceOpaqueFallback
+        forceOpaqueFallback = forceOpaqueFallback,
+        compositeOverBaseColor = compositeOverBaseColor
     )
     val containerPolicy = themeSurfaceContainerPolicy(
         surface = surface,

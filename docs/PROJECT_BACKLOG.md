@@ -8,7 +8,7 @@
 - Item、Record、Quote、状态、标签、自定义字段和统计已有正式数据链路。
 - Record 固定保存状态文字快照和 `durationMinutes`。
 - Quote 固定保存 `chapter`、`page`，并保留旧 `source` 语义。
-- Round 4U 开始前，用户手动执行 `compileDebugKotlin` 成功；Round 4U 修改后的构建和测试仍待手动执行。
+- Round 4V 完成后，用户已手动验证 `compileDebugKotlin`、`testDebugUnitTest`、`assembleDebug`、`assembleDebugAndroidTest` 和 `lintDebug`；Round 4V-Fix 3 修改后的构建与真机验证仍待执行。
 
 ## 已完成但待真机验证
 
@@ -18,6 +18,12 @@
 - 固定阅读／观看统计使用分离的 Record、Quote 聚合，避免两个一对多表的 JOIN 放大。
 - 封面输入限制为 32 MiB、宽高各 8192、总像素 1600 万，并检查真实格式与图片 bounds。
 - 封面海报在创建 Bitmap 前限制宽、高、总像素和估算 ARGB 内存。
+- Round 4V 月历图片导出已接通年月配置、首页同源日期／封面规则、主题快照、1080×1440 PNG Renderer，以及 MediaStore／SAF 直接保存。
+- Round 4V 年度封面海报已接通年份与全部／书籍／电影配置、真实 Record 日期归属、Item 去重、稳定排序、有效封面过滤和直接保存。
+- Round 4V-Fix 已按产品决定移除图片预览页面、preview route、预览 ViewModel 和视觉导出分享入口；设置页稳定 ViewModel 负责生成、保存、SAF 事件和临时文件清理。
+- Round 4V-Fix 2 已移除年度配置的“类别”Label，减弱月历空日期格并压缩标题、星期与网格的内部空白；年度海报在布局前过滤无效封面。
+- Round 4V-Fix 3 将首页和月历导出统一到同一个封面 placement 函数；年度海报使用验证阶段冻结的真实封面比例，按稳定顺序生成宽度固定 1080、高度随内容变化的无间距等高行布局。
+- Round 4V 原实现的 Kotlin 编译、JVM 测试、Debug 构建、AndroidTest APK 编译和 lint 已由用户手动验证；Round 4V-Fix 3 修改后的构建与真机直接导出仍待手动验证。
 - 详情／编辑器当前采用 IO 查询、Default 映射、一次发布、destination `RESUMED` gate、无固定 delay、无空白 Card skeleton、Quote 单上游。
 - 真实 11→12、1→12、手工填充 v9→12、Backup v4 数据库往返和固定统计 Room 测试源码均已存在；尚未执行 instrumentation test。
 
@@ -31,7 +37,7 @@
 - 手动 Backup ZIP 为明文，发布前必须明确提示。
 - Gradle wrapper 当前使用本机 `file:///D:/...`，干净 clone 无法构建。
 - 正式 applicationId、签名、版本和发布许可材料尚未确定。
-- - 处理 App 进程在 DataStore、数据库和封面提交步骤之间被终止时的导入恢复机制。
+- 处理 App 进程在 DataStore、数据库和封面提交步骤之间被终止时的导入恢复机制。
 
 ## P2 性能与维护
 
@@ -51,23 +57,14 @@
 ## 用户可见未完成功能
 
 
-### Round 4V：月历与年度海报
+### Round 4W：报告输出（源码已完成，待手动验证）
 
-- 月历 Renderer。
-- 年度书籍／电影封面海报。
-- 文件输出。
-- 预览。
-- 保存／分享。
-- 与现有封面海报共用图片输入和输出尺寸边界。
-
-### Round 4W：报告输出
-
-- 补齐 Record 状态／时长快照契约。
-- 大量 ID 查询分块。
-- Layout engine。
-- PNG Renderer。
-- PDF Renderer。
-- 文件保存、预览和分享。
+- 月度／年度报告统一使用 ALL／BOOK／MOVIE 全局范围和同一入选 Item 集合。
+- 基础统计复用正式阅读／观看统计模型；Record 只服务周期归属和固定统计。
+- 标签、字段统计、当前作品状态、作品档案／作品字段和摘录按固定模块顺序自动分页；作品档案本身只显示封面、标题和作者／导演。
+- 自定义字段在报告中只按 Item 处理，不生成 Record 字段或 Record 状态统计。
+- PNG／PDF 共用分页后的页面模型、Layout engine、Renderer、MediaStore／SAF 保存和临时文件清理。
+- 大量 Item ID 查询已分块；源码修改后的构建、测试和真机导出待用户手动验证。
 
 ### Round 4X：主题包管理
 

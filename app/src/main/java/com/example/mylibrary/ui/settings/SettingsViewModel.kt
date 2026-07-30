@@ -1,6 +1,7 @@
 package com.example.mylibrary.ui.settings
 
 import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,9 +12,10 @@ import com.example.mylibrary.backup.model.BackupResult
 import com.example.mylibrary.backup.model.BackupWarning
 import com.example.mylibrary.domain.usecase.FieldUseCases
 import com.example.mylibrary.domain.usecase.LibraryUseCases
-import com.example.mylibrary.export.report.ReportDataResolver
-import com.example.mylibrary.export.report.ReportDataSnapshot
-import com.example.mylibrary.export.report.ReportPreparationResult
+import com.example.mylibrary.export.report.ReportExportCoordinator
+import com.example.mylibrary.export.visual.VisualExportCoordinator
+import com.example.mylibrary.export.visual.VisualExportRequest
+import com.example.mylibrary.export.visual.VisualExportThemeSnapshot
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
@@ -26,11 +28,22 @@ class SettingsViewModel(
     libraryUseCases: LibraryUseCases,
     fieldUseCases: FieldUseCases,
     private val backupRepository: BackupRepository,
-    private val reportDataResolver: ReportDataResolver
+    reportExportCoordinator: ReportExportCoordinator,
+    visualExportCoordinator: VisualExportCoordinator,
+    directPictureSaveSupported: Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 ) : ViewModel() {
     private val backupState = MutableStateFlow(BackupUiState())
-    internal var preparedReportSnapshot: ReportDataSnapshot? = null
-        private set
+    private val visualExportController = SettingsVisualExportController(
+        coordinator = visualExportCoordinator,
+        scope = viewModelScope,
+        directPictureSaveSupported = directPictureSaveSupported
+    )
+    private val reportExportController = SettingsReportExportController(
+        coordinator = reportExportCoordinator,
+        scope = viewModelScope,
+        directSaveSupported = directPictureSaveSupported
+    )
     private val contentState = combine(
         libraryUseCases.observeTypes(),
         libraryUseCases.observeStatuses(),
@@ -57,11 +70,22 @@ class SettingsViewModel(
             initialValue = SettingsUiState()
         )
 
-    val uiState = combine(contentState, backupState) { content, backup ->
+    val uiState = combine(
+        contentState,
+        backupState,
+        visualExportController.state,
+        reportExportController.state
+    ) { content, backup, visualExport, reportExport ->
         content.copy(
             backupOperation = backup.operation,
             importPreview = backup.importPreview,
-            backupMessage = backup.message
+            backupMessage = backup.message,
+            visualExportOperation = visualExport.operation,
+            visualExportSafRequest = visualExport.safRequest,
+            visualExportMessage = visualExport.message,
+            reportExportOperation = reportExport.operation,
+            reportExportSafRequest = reportExport.safRequest,
+            reportExportMessage = reportExport.message
         )
     }.stateIn(
         scope = viewModelScope,
@@ -70,7 +94,7 @@ class SettingsViewModel(
     )
 
     fun exportData(uri: Uri) {
-        if (backupState.value.operation != null) return
+        if (isOperationBusy()) return
         viewModelScope.launch {
             backupState.update {
                 it.copy(
@@ -96,7 +120,7 @@ class SettingsViewModel(
     }
 
     fun prepareImport(uri: Uri) {
-        if (backupState.value.operation != null) return
+        if (isOperationBusy()) return
         viewModelScope.launch {
             backupState.update {
                 it.copy(
@@ -125,42 +149,30 @@ class SettingsViewModel(
         }
     }
 
-    fun prepareReport(config: ReportExportConfig) {
-        if (backupState.value.operation != null) return
-        viewModelScope.launch {
-            backupState.update {
-                it.copy(
-                    operation = SettingsBackupOperation.PREPARING_REPORT,
-                    message = null
-                )
-            }
-            preparedReportSnapshot = null
-            val message = runCatching { reportDataResolver.resolve(config) }
-                .fold(
-                    onSuccess = { result ->
-                        when (result) {
-                            is ReportPreparationResult.InvalidConfig -> result.message
-                            is ReportPreparationResult.Ready -> {
-                                preparedReportSnapshot = result.snapshot
-                                if (result.snapshot.isEmpty) {
-                                    "所选范围内暂无可导出的记录"
-                                } else {
-                                    "报告数据已准备，正式渲染将在后续接入"
-                                }
-                            }
-                        }
-                    },
-                    onFailure = {
-                        preparedReportSnapshot = null
-                        "报告数据准备失败"
-                    }
-                )
-            backupState.update { it.copy(operation = null, message = message) }
+    fun startReportExport(
+        config: ReportExportConfig,
+        theme: VisualExportThemeSnapshot
+    ): Boolean {
+        if (backupState.value.operation != null || visualExportController.isBusy) {
+            return false
         }
+        return reportExportController.start(config, theme)
+    }
+
+    fun consumeReportExportSafRequest() {
+        reportExportController.consumeSafRequest()
+    }
+
+    fun onReportExportDestinationSelected(uri: Uri?) {
+        reportExportController.onSafResult(uri)
+    }
+
+    fun consumeReportExportMessage() {
+        reportExportController.consumeMessage()
     }
 
     fun confirmImport() {
-        if (backupState.value.operation != null ||
+        if (isOperationBusy() ||
             backupState.value.importPreview == null
         ) {
             return
@@ -179,7 +191,7 @@ class SettingsViewModel(
     }
 
     fun cancelPreparedImport() {
-        if (backupState.value.operation != null) return
+        if (isOperationBusy()) return
         backupState.update { it.copy(importPreview = null) }
         viewModelScope.launch { backupRepository.discardPreparedImport() }
     }
@@ -187,6 +199,39 @@ class SettingsViewModel(
     fun consumeBackupMessage() {
         backupState.update { it.copy(message = null) }
     }
+
+    fun startVisualExport(
+        request: VisualExportRequest,
+        theme: VisualExportThemeSnapshot
+    ): Boolean {
+        if (backupState.value.operation != null || reportExportController.isBusy) {
+            return false
+        }
+        return visualExportController.start(request, theme)
+    }
+
+    fun consumeVisualExportSafRequest() {
+        visualExportController.consumeSafRequest()
+    }
+
+    fun onVisualExportDestinationSelected(uri: Uri?) {
+        visualExportController.onSafDestinationResult(uri)
+    }
+
+    fun consumeVisualExportMessage() {
+        visualExportController.consumeMessage()
+    }
+
+    override fun onCleared() {
+        visualExportController.close()
+        reportExportController.close()
+        super.onCleared()
+    }
+
+    private fun isOperationBusy(): Boolean =
+        backupState.value.operation != null ||
+            visualExportController.isBusy ||
+            reportExportController.isBusy
 }
 
 internal fun importResultMessage(result: BackupResult): String? = when (result) {
@@ -214,7 +259,8 @@ class SettingsViewModelFactory(
     private val libraryUseCases: LibraryUseCases,
     private val fieldUseCases: FieldUseCases,
     private val backupRepository: BackupRepository,
-    private val reportDataResolver: ReportDataResolver
+    private val reportExportCoordinator: ReportExportCoordinator,
+    private val visualExportCoordinator: VisualExportCoordinator
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -223,7 +269,8 @@ class SettingsViewModelFactory(
             libraryUseCases,
             fieldUseCases,
             backupRepository,
-            reportDataResolver
+            reportExportCoordinator,
+            visualExportCoordinator
         ) as T
     }
 }

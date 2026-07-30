@@ -6,7 +6,7 @@ import com.example.mylibrary.ui.navigation.DefaultNavigationIconResolver
 val DefaultThemeManifest = ThemeManifest(
     schemaVersion = THEME_MANIFEST_SCHEMA_VERSION,
     id = "builtin.default",
-    name = "MyLibrary Default",
+    name = "MyLibrary 默认主题",
     author = "MyLibrary",
     version = "1.0.0",
     surfaces = ThemeSurfaceManifest(
@@ -44,7 +44,7 @@ val DefaultThemeManifest = ThemeManifest(
 
 val DefaultResolvedTheme = ResolvedTheme(
     id = "builtin.default",
-    name = "MyLibrary Default",
+    name = "MyLibrary 默认主题",
     surfaces = ResolvedThemeSurfaces(
         background = ResolvedSurface.ColorSurface(Color(0xFFF3F3F1)),
         card = ResolvedSurface.ColorSurface(Color(0xFFFFFFFF)),
@@ -60,5 +60,6 @@ val DefaultResolvedTheme = ResolvedTheme(
     typography = createAppTypography(SystemAppFontResolver),
     fontResolver = SystemAppFontResolver,
     navigationIconResolver = DefaultNavigationIconResolver,
-    darkSystemBarIcons = true
+    darkSystemBarIcons = true,
+    themeGeneration = 0L
 )

@@ -9,11 +9,10 @@ data class ReportRecordRow(
     val itemId: Long,
     @ColumnInfo(name = "start_date")
     val startDate: Long,
-    @ColumnInfo(name = "end_date")
-    val endDate: Long?,
-    @ColumnInfo(name = "rating_half_stars")
-    val ratingHalfStars: Int?,
-    val review: String?,
+    @ColumnInfo(name = "duration_minutes")
+    val durationMinutes: Long?,
+    @ColumnInfo(name = "record_created_at")
+    val recordCreatedAt: Long,
     @ColumnInfo(name = "type_id")
     val typeId: Long,
     @ColumnInfo(name = "type_name")
@@ -27,6 +26,8 @@ data class ReportRecordRow(
     val currentStatusId: Long?,
     @ColumnInfo(name = "current_status_name")
     val currentStatusName: String?,
+    @ColumnInfo(name = "current_status_sort_order")
+    val currentStatusSortOrder: Int?,
     val creator: String?
 )
 
@@ -41,7 +42,11 @@ data class ReportActivityRow(
 data class ReportItemTagRow(
     @ColumnInfo(name = "item_id")
     val itemId: Long,
-    val name: String
+    @ColumnInfo(name = "tag_id")
+    val tagId: Long,
+    val name: String,
+    @ColumnInfo(name = "sort_order")
+    val sortOrder: Int
 )
 
 data class ReportQuoteRow(

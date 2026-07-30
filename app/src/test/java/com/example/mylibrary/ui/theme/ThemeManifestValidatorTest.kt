@@ -77,6 +77,56 @@ class ThemeManifestValidatorTest {
     }
 
     @Test
+    fun packageRootSurfaceNamesAreAcceptedWithoutBreakingLegacyPaths() {
+        val rootLayout = DefaultThemeManifest.copy(
+            surfaces = ThemeSurfaceManifest(
+                background = ThemeSurfaceDefinition(
+                    ThemeSurfaceType.IMAGE,
+                    "#FFF3F3F1",
+                    "surfaces/background.jpg"
+                ),
+                card = ThemeSurfaceDefinition(
+                    ThemeSurfaceType.IMAGE,
+                    "#FFFFFFFF",
+                    "surfaces/card.webp"
+                ),
+                dialog = ThemeSurfaceDefinition(
+                    ThemeSurfaceType.IMAGE,
+                    "#FFFFFFFF",
+                    "surfaces/dialog.png"
+                )
+            )
+        )
+        val legacyLayout = DefaultThemeManifest.copy(
+            surfaces = DefaultThemeManifest.surfaces.copy(
+                background = ThemeSurfaceDefinition(
+                    ThemeSurfaceType.IMAGE,
+                    "#FFF3F3F1",
+                    "surfaces/background/paper.jpg"
+                )
+            )
+        )
+
+        assertTrue(ThemeManifestValidator.validate(rootLayout).isValid)
+        assertTrue(ThemeManifestValidator.validate(legacyLayout).isValid)
+    }
+
+    @Test
+    fun packageRootSurfaceCannotReferenceAnotherRoleName() {
+        val manifest = DefaultThemeManifest.copy(
+            surfaces = DefaultThemeManifest.surfaces.copy(
+                card = ThemeSurfaceDefinition(
+                    ThemeSurfaceType.IMAGE,
+                    "#FFFFFFFF",
+                    "surfaces/background.webp"
+                )
+            )
+        )
+
+        assertFalse(ThemeManifestValidator.validate(manifest).isValid)
+    }
+
+    @Test
     fun resourcePathTraversalIsRejected() {
         val manifest = DefaultThemeManifest.copy(
             surfaces = DefaultThemeManifest.surfaces.copy(

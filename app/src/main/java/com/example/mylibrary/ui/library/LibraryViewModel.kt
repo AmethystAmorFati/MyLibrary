@@ -70,7 +70,7 @@ class LibraryViewModel(
             tags = metadata.tags,
             query = requestedFilter.query,
             selectedStatusId = result.filter.statusId,
-            selectedTagIds = result.filter.tagIds,
+            selectedTagIds = requestedFilter.tagIds,
             dynamicFields = metadata.fields,
             viewMode = metadata.viewMode,
             gridColumns = metadata.gridColumns,
@@ -104,7 +104,7 @@ class LibraryViewModel(
     }
 
     fun onTagsSelected(tagIds: Set<Long>) {
-        filter.update { it.copy(tagIds = tagIds) }
+        filter.update { it.withTagIds(tagIds) }
     }
 
     fun openSearch() {
@@ -148,12 +148,15 @@ class LibraryViewModelFactory(
     }
 }
 
-private data class LibraryFilter(
+internal data class LibraryFilter(
     val query: String = "",
     val statusId: Long? = null,
     val tagIds: Set<Long> = emptySet(),
     val isSearchActive: Boolean = false
 )
+
+internal fun LibraryFilter.withTagIds(tagIds: Set<Long>): LibraryFilter =
+    copy(tagIds = tagIds.toSet())
 
 private data class LibraryMetadata(
     val statuses: List<com.example.mylibrary.domain.model.LibraryStatus>,

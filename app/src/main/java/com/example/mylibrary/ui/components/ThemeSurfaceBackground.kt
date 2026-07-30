@@ -10,13 +10,16 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.example.mylibrary.ui.theme.AppTheme
 import com.example.mylibrary.ui.theme.ResolvedSurface
 import com.example.mylibrary.ui.theme.SurfaceRole
+import com.example.mylibrary.ui.theme.compositeBackgroundOverBase
 import java.util.LinkedHashSet
 import kotlin.math.roundToInt
 
@@ -32,12 +35,14 @@ internal data class ThemeSurfaceContainerPolicy(
 internal fun resolvedThemeSurfaceForContainer(
     surface: ResolvedSurface,
     drawImageSurface: Boolean,
-    forceOpaqueFallback: Boolean
+    forceOpaqueFallback: Boolean,
+    compositeOverBaseColor: Boolean = false
 ): ResolvedSurface {
-    val fallbackColor = if (forceOpaqueFallback) {
-        surface.fallbackColor.copy(alpha = 1f)
-    } else {
-        surface.fallbackColor
+    val fallbackColor = when {
+        compositeOverBaseColor ->
+            compositeBackgroundOverBase(surface.fallbackColor)
+        forceOpaqueFallback -> surface.fallbackColor.copy(alpha = 1f)
+        else -> surface.fallbackColor
     }
     return when {
         !drawImageSurface -> ResolvedSurface.ColorSurface(fallbackColor)
@@ -77,11 +82,44 @@ internal fun Modifier.appThemeSurfaceBackground(
     containerAlpha = containerAlpha
 )
 
+/**
+ * Draws the BACKGROUND surface with its fallback color composited over the
+ * app base background and forced to alpha = 1, producing an opaque layer
+ * that fully occludes any content beneath it.
+ *
+ * For COLOR backgrounds this yields the same opaque visual color used by
+ * the root page, preventing both see-through and double-darkening.  For
+ * IMAGE backgrounds the opaque composited fallback is drawn first, then
+ * the theme image is drawn on top following the existing center-crop
+ * rules — so the image still shows while the base layer blocks the
+ * timeline underneath.
+ */
+@Composable
+internal fun Modifier.opaqueThemeBackground(
+    role: SurfaceRole = SurfaceRole.BACKGROUND,
+    shape: Shape = RectangleShape
+): Modifier {
+    val compositedSurface = resolvedThemeSurfaceForContainer(
+        surface = AppTheme.surface(role),
+        drawImageSurface = true,
+        forceOpaqueFallback = false,
+        compositeOverBaseColor = true
+    )
+    return themeSurfaceBackground(
+        surface = compositedSurface,
+        expectedRole = role,
+        shape = shape,
+        containerAlpha = 1f
+    )
+}
+
 internal fun Modifier.themeSurfaceBackground(
     surface: ResolvedSurface,
     expectedRole: SurfaceRole,
     shape: Shape,
-    containerAlpha: Float = 1f
+    containerAlpha: Float = 1f,
+    viewportSize: IntSize? = null,
+    offsetInViewport: Offset = Offset.Zero
 ): Modifier {
     val alpha = containerAlpha.coerceIn(0f, 1f)
     return drawWithCache {
@@ -92,6 +130,11 @@ internal fun Modifier.themeSurfaceBackground(
         val layerPaint = Paint().apply {
             this.alpha = alpha
         }
+        val hasViewport = viewportSize != null
+        val effectiveViewportWidth = viewportSize?.width
+            ?: size.width.roundToInt().coerceAtLeast(1)
+        val effectiveViewportHeight = viewportSize?.height
+            ?: size.height.roundToInt().coerceAtLeast(1)
         onDrawBehind {
             clipPath(outlinePath) {
                 val usesLayer = alpha < 1f
@@ -121,26 +164,44 @@ internal fun Modifier.themeSurfaceBackground(
                                 val crop = calculateCenterCropSource(
                                     sourceWidth = asset.decodedWidth,
                                     sourceHeight = asset.decodedHeight,
-                                    destinationWidth =
-                                        size.width.roundToInt().coerceAtLeast(1),
-                                    destinationHeight =
-                                        size.height.roundToInt().coerceAtLeast(1)
+                                    destinationWidth = effectiveViewportWidth,
+                                    destinationHeight = effectiveViewportHeight
                                 )
-                                try {
-                                    drawImage(
-                                        image = bitmap,
-                                        srcOffset = crop.offset,
-                                        srcSize = crop.size,
-                                        dstOffset = IntOffset.Zero,
-                                        dstSize = IntSize(
-                                            size.width
-                                                .roundToInt()
-                                                .coerceAtLeast(1),
-                                            size.height
-                                                .roundToInt()
-                                                .coerceAtLeast(1)
-                                        )
+                                val dstSize = if (hasViewport) {
+                                    viewportSize!!
+                                } else {
+                                    IntSize(
+                                        size.width
+                                            .roundToInt()
+                                            .coerceAtLeast(1),
+                                        size.height
+                                            .roundToInt()
+                                            .coerceAtLeast(1)
                                     )
+                                }
+                                try {
+                                    if (hasViewport) {
+                                        translate(
+                                            left = -offsetInViewport.x,
+                                            top = -offsetInViewport.y
+                                        ) {
+                                            drawImage(
+                                                image = bitmap,
+                                                srcOffset = crop.offset,
+                                                srcSize = crop.size,
+                                                dstOffset = IntOffset.Zero,
+                                                dstSize = dstSize
+                                            )
+                                        }
+                                    } else {
+                                        drawImage(
+                                            image = bitmap,
+                                            srcOffset = crop.offset,
+                                            srcSize = crop.size,
+                                            dstOffset = IntOffset.Zero,
+                                            dstSize = dstSize
+                                        )
+                                    }
                                 } catch (throwable: Throwable) {
                                     logRuntimeFailureOnce(
                                         key = "draw:${asset.cacheKey}",

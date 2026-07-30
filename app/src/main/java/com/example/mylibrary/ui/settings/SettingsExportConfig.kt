@@ -4,6 +4,9 @@ import com.example.mylibrary.domain.model.DynamicFieldDefinition
 import com.example.mylibrary.domain.model.FieldAggregation
 import com.example.mylibrary.domain.model.FieldScope
 import com.example.mylibrary.domain.model.compatibleWith
+import com.example.mylibrary.export.visual.AnnualPosterCategory
+import com.example.mylibrary.export.visual.VisualExportRequest
+import java.time.LocalDate
 
 sealed interface SettingsExportRequest {
     data object FullBackup : SettingsExportRequest
@@ -15,13 +18,37 @@ sealed interface SettingsExportRequest {
 
     data class YearPoster(
         val year: Int,
-        val typeId: Long?
+        val category: AnnualPosterCategory
     ) : SettingsExportRequest
 
     data class Report(
         val config: ReportExportConfig
     ) : SettingsExportRequest
 }
+
+data class VisualExportDialogDefaults(
+    val year: Int,
+    val month: Int,
+    val annualCategory: AnnualPosterCategory
+)
+
+fun defaultVisualExportDialogValues(
+    today: LocalDate = LocalDate.now()
+): VisualExportDialogDefaults = VisualExportDialogDefaults(
+    year = today.year,
+    month = today.monthValue,
+    annualCategory = AnnualPosterCategory.ALL
+)
+
+fun SettingsExportRequest.toVisualExportRequestOrNull(): VisualExportRequest? =
+    when (this) {
+        is SettingsExportRequest.CalendarPage ->
+            VisualExportRequest.Calendar(year, month)
+        is SettingsExportRequest.YearPoster ->
+            VisualExportRequest.AnnualPoster(year, category)
+        SettingsExportRequest.FullBackup,
+        is SettingsExportRequest.Report -> null
+    }
 
 data class ReportStatisticSelection(
     val fieldId: Long,
@@ -38,15 +65,52 @@ data class ReportExportConfig(
     val statusIds: Set<Long> = emptySet(),
     val workCustomFieldIds: Set<Long> = emptySet(),
     val statisticSelections: Set<ReportStatisticSelection> = emptySet(),
-    val includeQuotes: Boolean = false
+    val includeQuotes: Boolean = false,
+    val showcaseStyle: ReportShowcaseStyle = ReportShowcaseStyle.COLLAGE,
+    val outputFormat: ReportOutputFormat = ReportOutputFormat.PDF,
+    val includeBasicStatistics: Boolean = statistics.any {
+        it in BASIC_REPORT_STATISTICS
+    },
+    val includeTagStatistics: Boolean = ReportStatisticOption.TAGS in statistics,
+    val includeFieldStatistics: Boolean = statisticSelections.isNotEmpty(),
+    val includeItemInformation: Boolean = workFields.isNotEmpty() ||
+        workCustomFieldIds.isNotEmpty(),
+    val includeItemFields: Boolean = workCustomFieldIds.isNotEmpty(),
+    val includeItemStatusStatistics: Boolean =
+        includeAllStatuses || statusIds.isNotEmpty()
 ) {
     fun hasContent(): Boolean =
-        statistics.isNotEmpty() ||
-            statisticSelections.isNotEmpty() ||
-            workFields.isNotEmpty() ||
-            includeQuotes ||
-            includeAllStatuses ||
-            statusIds.isNotEmpty()
+        month == null ||
+            includeBasicStatistics ||
+            includeTagStatistics ||
+            includeFieldStatistics ||
+            includeItemInformation ||
+            includeItemFields ||
+            includeItemStatusStatistics ||
+            includeQuotes
+
+    fun normalized(): ReportExportConfig {
+        val itemFieldsEnabled = includeItemFields && workCustomFieldIds.isNotEmpty()
+        return copy(
+            workCustomFieldIds = if (itemFieldsEnabled) {
+                workCustomFieldIds
+            } else {
+                emptySet()
+            },
+            includeItemInformation = includeItemInformation && workFields.isNotEmpty(),
+            includeItemFields = itemFieldsEnabled
+        )
+    }
+}
+
+enum class ReportShowcaseStyle {
+    COLLAGE,
+    GRID
+}
+
+enum class ReportOutputFormat {
+    PNG,
+    PDF
 }
 
 enum class ReportStatisticOption {
@@ -67,8 +131,13 @@ enum class ReportWorkOption {
     TAGS
 }
 
-internal val DEFAULT_REPORT_STATISTICS =
-    setOf(ReportStatisticOption.ITEM_COUNT, ReportStatisticOption.ACTIVITY_DAYS)
+internal val BASIC_REPORT_STATISTICS = setOf(
+    ReportStatisticOption.ITEM_COUNT,
+    ReportStatisticOption.RECORD_COUNT,
+    ReportStatisticOption.QUOTE_COUNT
+)
+
+internal val DEFAULT_REPORT_STATISTICS = BASIC_REPORT_STATISTICS
 
 internal val DEFAULT_REPORT_WORK_FIELDS =
     setOf(ReportWorkOption.COVER, ReportWorkOption.TITLE, ReportWorkOption.CREATOR)
@@ -101,6 +170,7 @@ internal fun availableReportStatisticFields(
         .filter { field ->
             field.enabled &&
                 !field.isFixed &&
+                field.scope == FieldScope.ITEM &&
                 field.aggregations.compatibleWith(field.dataType).isNotEmpty()
         }
         .sortedWith(reportFieldOrder())

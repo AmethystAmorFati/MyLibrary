@@ -44,4 +44,13 @@ class StarRatingLogicTest {
         assertEquals(StarFillState.HALF, starFillState(7, 4))
         assertEquals(StarFillState.EMPTY, starFillState(7, 5))
     }
+
+    @Test
+    fun fourAndAHalfStarsOnlyClipsTheFifthFillLayer() {
+        assertEquals(
+            listOf(1f, 1f, 1f, 1f, 0.5f),
+            ratingStarFillFractions(9)
+        )
+        assertEquals(0.5f, starFillFraction(9, 5))
+    }
 }

@@ -1,5 +1,7 @@
 package com.example.mylibrary.ui.theme
 
+import java.util.Locale
+
 object ThemeResourceLimits {
     const val MAX_SURFACE_IMAGES = 3
     const val MAX_FONT_FILES = 2
@@ -37,13 +39,14 @@ object ThemeResourceLimits {
     const val MAX_NAVIGATION_IMAGE_CACHE_BYTES = 2L * 1024L * 1024L
 
     const val MIN_FONT_FILE_BYTES = 28L
-    const val MAX_SINGLE_FONT_FILE_BYTES = 20L * 1024L * 1024L
-    const val MAX_TOTAL_FONT_FILE_BYTES = 32L * 1024L * 1024L
+    const val MAX_SINGLE_FONT_FILE_BYTES = 32L * 1024L * 1024L
+    const val MAX_TOTAL_FONT_FILE_BYTES = 64L * 1024L * 1024L
 
     const val MAX_FILE_NAME_LENGTH = 128
     const val MAX_MANIFEST_STRING_LENGTH = 256
     const val MAX_THEME_ID_LENGTH = 64
 
+    const val SURFACE_PREFIX = "surfaces/"
     const val BACKGROUND_SURFACE_PREFIX = "surfaces/background/"
     const val CARD_SURFACE_PREFIX = "surfaces/card/"
     const val DIALOG_SURFACE_PREFIX = "surfaces/dialog/"
@@ -64,5 +67,40 @@ object ThemeResourceLimits {
         SurfaceRole.BACKGROUND -> MAX_BACKGROUND_IMAGE_PIXELS
         SurfaceRole.CARD -> MAX_CARD_IMAGE_PIXELS
         SurfaceRole.DIALOG -> MAX_DIALOG_IMAGE_PIXELS
+    }
+
+    fun isAllowedSurfaceImagePath(
+        role: SurfaceRole,
+        path: String
+    ): Boolean =
+        isCanonicalSurfaceImagePath(role, path) ||
+            isLegacySurfaceImagePath(role, path)
+
+    fun isCanonicalSurfaceImagePath(
+        role: SurfaceRole,
+        path: String
+    ): Boolean {
+        if (!path.startsWith(SURFACE_PREFIX)) return false
+        val fileName = path.removePrefix(SURFACE_PREFIX)
+        if (fileName.isBlank() || '/' in fileName) return false
+        val roleName = role.name.lowercase(Locale.ROOT)
+        return fileName.substringBeforeLast(
+            '.',
+            missingDelimiterValue = ""
+        ) == roleName
+    }
+
+    fun isLegacySurfaceImagePath(
+        role: SurfaceRole,
+        path: String
+    ): Boolean {
+        val legacyPrefix = when (role) {
+            SurfaceRole.BACKGROUND -> BACKGROUND_SURFACE_PREFIX
+            SurfaceRole.CARD -> CARD_SURFACE_PREFIX
+            SurfaceRole.DIALOG -> DIALOG_SURFACE_PREFIX
+        }
+        if (!path.startsWith(legacyPrefix)) return false
+        val fileName = path.removePrefix(legacyPrefix)
+        return fileName.isNotBlank() && '/' !in fileName
     }
 }

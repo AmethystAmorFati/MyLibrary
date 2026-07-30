@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -525,7 +526,117 @@ class ThemeDynamicSurfaceInstrumentedTest {
         val pixels = composeRule.onNodeWithTag("image-sheet")
             .captureToImage()
             .toPixelMap()
-        assertTrue(pixels.containsColor(Color.Yellow))
+        // Image is present inside the sheet (bottom half of the screen).
+        assertTrue(
+            "DIALOG image should be visible inside the sheet",
+            pixels.containsColorInRegion(
+                Color.Yellow,
+                startY = pixels.height / 2,
+                endY = pixels.height
+            )
+        )
+        // Image must NOT appear above the sheet (top quarter of the screen).
+        assertFalse(
+            "DIALOG image must not appear above the sheet at the screen top",
+            pixels.containsColorInRegion(
+                Color.Yellow,
+                startY = 0,
+                endY = pixels.height / 4
+            )
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Test
+    @SdkSuppress(minSdkVersion = 28)
+    fun modalBottomSheetColorModeShowsFallbackColor() {
+        val dialogColor = Color(0xFF00BCD4)
+        val theme = DefaultResolvedTheme.copy(
+            surfaces = DefaultResolvedTheme.surfaces.copy(
+                dialog = ResolvedSurface.ColorSurface(dialogColor)
+            )
+        )
+
+        composeRule.setContent {
+            MyLibraryTheme(resolvedTheme = theme) {
+                AppModalBottomSheet(
+                    onDismissRequest = {},
+                    modifier = Modifier.testTag("color-sheet")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        val pixels = composeRule.onNodeWithTag("color-sheet")
+            .captureToImage()
+            .toPixelMap()
+        assertTrue(
+            "DIALOG color should fill the sheet area",
+            pixels.containsColorInRegion(
+                dialogColor,
+                startY = pixels.height / 2,
+                endY = pixels.height
+            )
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Test
+    @SdkSuppress(minSdkVersion = 28)
+    fun modalBottomSheetImageFallbackShowsDialogColor() {
+        val bitmap = Bitmap.createBitmap(80, 80, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(AndroidColor.YELLOW)
+        val unavailableAsset = testAsset(
+            bitmap = bitmap,
+            role = SurfaceRole.DIALOG,
+            keySuffix = "fallback"
+        ).copy(
+            imageBitmap = null,
+            unavailableReason = "instrumented runtime fallback"
+        )
+        val theme = DefaultResolvedTheme.copy(
+            surfaces = DefaultResolvedTheme.surfaces.copy(
+                dialog = ResolvedSurface.ImageSurface(
+                    fallbackColor = Color.Magenta,
+                    image = unavailableAsset,
+                    role = SurfaceRole.DIALOG
+                )
+            )
+        )
+
+        composeRule.setContent {
+            MyLibraryTheme(resolvedTheme = theme) {
+                AppModalBottomSheet(
+                    onDismissRequest = {},
+                    modifier = Modifier.testTag("fallback-sheet")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        val pixels = composeRule.onNodeWithTag("fallback-sheet")
+            .captureToImage()
+            .toPixelMap()
+        assertTrue(
+            "DIALOG fallback color should show when image is unavailable",
+            pixels.containsColorInRegion(
+                Color.Magenta,
+                startY = pixels.height / 2,
+                endY = pixels.height
+            )
+        )
     }
 
     private fun resolveTheme(
@@ -722,6 +833,27 @@ private fun androidx.compose.ui.graphics.PixelMap.containsColor(
     expected: Color
 ): Boolean {
     for (y in 0 until height) {
+        for (x in 0 until width) {
+            val color = this[x, y]
+            if (
+                kotlin.math.abs(color.red - expected.red) < 0.08f &&
+                kotlin.math.abs(color.green - expected.green) < 0.08f &&
+                kotlin.math.abs(color.blue - expected.blue) < 0.08f
+            ) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+private fun androidx.compose.ui.graphics.PixelMap.containsColorInRegion(
+    expected: Color,
+    startY: Int,
+    endY: Int
+): Boolean {
+    val clampedEnd = endY.coerceAtMost(height)
+    for (y in startY.coerceAtLeast(0) until clampedEnd) {
         for (x in 0 until width) {
             val color = this[x, y]
             if (

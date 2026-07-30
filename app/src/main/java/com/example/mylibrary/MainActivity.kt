@@ -14,7 +14,8 @@ import com.example.mylibrary.ui.theme.MyLibraryTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private var appliedDarkSystemBarIcons: Boolean? = null
+    internal var appliedDarkSystemBarIcons: Boolean? = null
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,7 +38,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun applySystemBarStyle(darkSystemBarIcons: Boolean) {
+    internal fun applySystemBarStyle(darkSystemBarIcons: Boolean) {
         if (appliedDarkSystemBarIcons == darkSystemBarIcons) return
         appliedDarkSystemBarIcons = darkSystemBarIcons
 

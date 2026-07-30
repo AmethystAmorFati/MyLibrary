@@ -49,7 +49,6 @@ class RoomReportDataSource(
         range: ReportEpochRange,
         selectedItemTypeIds: Set<Long>,
         itemFieldIds: Set<Long>,
-        recordFieldIds: Set<Long>,
         includeQuotes: Boolean
     ): ReportSourceData = database.withTransaction {
         val dao = database.reportDao()
@@ -62,26 +61,29 @@ class RoomReportDataSource(
             typeCount
         )
         val itemIds = records.map(ReportSourceRecordMapper::itemId).distinct()
-        val recordIds = records.map(ReportSourceRecordMapper::recordId)
-        val itemValues = if (itemIds.isEmpty() || itemFieldIds.isEmpty()) {
-            emptyList()
-        } else {
-            dao.getItemFieldValues(itemIds, itemFieldIds.sorted()).map {
-                ReportSourceFieldValue(it.itemId, it.fieldId, it.value)
+        val itemValues = chunkedQuery(itemIds) { ids ->
+            if (itemFieldIds.isEmpty()) {
+                emptyList()
+            } else {
+                dao.getItemFieldValues(ids, itemFieldIds.sorted()).map {
+                    ReportSourceFieldValue(it.itemId, it.fieldId, it.value)
+                }
             }
-        }
-        val recordValues = if (recordIds.isEmpty() || recordFieldIds.isEmpty()) {
-            emptyList()
-        } else {
-            dao.getRecordFieldValues(recordIds, recordFieldIds.sorted()).map {
-                ReportSourceFieldValue(it.recordId, it.fieldId, it.value)
+        }.sortedWith(compareBy({ it.ownerId }, { it.fieldId }))
+        val tags = chunkedQuery(itemIds) { ids ->
+            dao.getItemTags(ids).map {
+                ReportSourceItemTag(
+                    itemId = it.itemId,
+                    tagId = it.tagId,
+                    name = it.name,
+                    sortOrder = it.sortOrder
+                )
             }
-        }
-        val tags = if (itemIds.isEmpty()) {
-            emptyList()
-        } else {
-            dao.getItemTags(itemIds).map { ReportSourceItemTag(it.itemId, it.name) }
-        }
+        }.sortedWith(
+            compareBy<ReportSourceItemTag> { it.itemId }
+                .thenBy { it.sortOrder }
+                .thenBy { it.tagId }
+        )
         val quotes = if (includeQuotes) {
             dao.getQuotes(
                 range.startInclusive,
@@ -109,9 +111,8 @@ class RoomReportDataSource(
                     recordId = it.recordId,
                     itemId = it.itemId,
                     startDate = it.startDate,
-                    endDate = it.endDate,
-                    ratingHalfStars = it.ratingHalfStars,
-                    review = it.review,
+                    durationMinutes = it.durationMinutes,
+                    recordCreatedAt = it.recordCreatedAt,
                     typeId = it.typeId,
                     typeName = it.typeName,
                     typeSortOrder = it.typeSortOrder,
@@ -119,6 +120,7 @@ class RoomReportDataSource(
                     coverPath = it.coverPath,
                     currentStatusId = it.currentStatusId,
                     currentStatusName = it.currentStatusName,
+                    currentStatusSortOrder = it.currentStatusSortOrder,
                     creator = it.creator
                 )
             },
@@ -129,17 +131,27 @@ class RoomReportDataSource(
                 typeCount
             ).map { ReportSourceActivity(it.date, it.itemId, it.typeId) },
             itemFieldValues = itemValues,
-            recordFieldValues = recordValues,
             itemTags = tags,
             quotes = quotes
         )
     }
 }
 
+internal const val REPORT_QUERY_CHUNK_SIZE = 500
+
+internal suspend fun <T, R> chunkedQuery(
+    ids: List<T>,
+    chunkSize: Int = REPORT_QUERY_CHUNK_SIZE,
+    query: suspend (List<T>) -> List<R>
+): List<R> {
+    require(chunkSize in 1..900)
+    if (ids.isEmpty()) return emptyList()
+    return ids.distinct()
+        .chunked(chunkSize)
+        .flatMap { query(it) }
+}
+
 private object ReportSourceRecordMapper {
     fun itemId(value: com.example.mylibrary.data.model.ReportRecordRow): Long =
         value.itemId
-
-    fun recordId(value: com.example.mylibrary.data.model.ReportRecordRow): Long =
-        value.recordId
 }

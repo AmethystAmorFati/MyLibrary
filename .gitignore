@@ -28,3 +28,12 @@ Thumbs.db
 
 # Local tools
 .agents/
+theme-maker/node_modules/
+theme-maker/dist/
+theme-maker/coverage/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# TypeScript build cache
+*.tsbuildinfo

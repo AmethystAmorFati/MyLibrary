@@ -12,7 +12,6 @@ data class ReportSourceData(
     val records: List<ReportSourceRecord>,
     val activities: List<ReportSourceActivity>,
     val itemFieldValues: List<ReportSourceFieldValue>,
-    val recordFieldValues: List<ReportSourceFieldValue>,
     val itemTags: List<ReportSourceItemTag>,
     val quotes: List<ReportSourceQuote>
 )
@@ -21,9 +20,6 @@ data class ReportSourceRecord(
     val recordId: Long,
     val itemId: Long,
     val startDate: Long,
-    val endDate: Long?,
-    val ratingHalfStars: Int?,
-    val review: String?,
     val typeId: Long,
     val typeName: String,
     val typeSortOrder: Int,
@@ -31,7 +27,10 @@ data class ReportSourceRecord(
     val coverPath: String?,
     val currentStatusId: Long?,
     val currentStatusName: String?,
-    val creator: String?
+    val currentStatusSortOrder: Int? = null,
+    val creator: String?,
+    val durationMinutes: Long? = null,
+    val recordCreatedAt: Long = 0
 )
 
 data class ReportSourceActivity(
@@ -48,7 +47,9 @@ data class ReportSourceFieldValue(
 
 data class ReportSourceItemTag(
     val itemId: Long,
-    val name: String
+    val name: String,
+    val tagId: Long = 0,
+    val sortOrder: Int = 0
 )
 
 data class ReportSourceQuote(
@@ -69,7 +70,6 @@ interface ReportDataSource {
         range: ReportEpochRange,
         selectedItemTypeIds: Set<Long>,
         itemFieldIds: Set<Long>,
-        recordFieldIds: Set<Long>,
         includeQuotes: Boolean
     ): ReportSourceData
 }

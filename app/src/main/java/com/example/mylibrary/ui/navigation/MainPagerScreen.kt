@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import com.example.mylibrary.di.AppContainer
 import com.example.mylibrary.domain.model.LibraryViewPreferences
+import com.example.mylibrary.export.visual.VisualExportThemeSnapshotFactory
 import com.example.mylibrary.ui.home.HomeScreen
 import com.example.mylibrary.ui.home.HomeViewModel
 import com.example.mylibrary.ui.home.HomeViewModelFactory
@@ -21,6 +22,7 @@ import com.example.mylibrary.ui.library.LibraryScreen
 import com.example.mylibrary.ui.library.LibraryViewModel
 import com.example.mylibrary.ui.library.LibraryViewModelFactory
 import com.example.mylibrary.ui.settings.SettingsScreen
+import com.example.mylibrary.ui.settings.toVisualExportRequestOrNull
 import com.example.mylibrary.ui.settings.SettingsViewModel
 import com.example.mylibrary.ui.settings.SettingsViewModelFactory
 import com.example.mylibrary.ui.statistics.StatisticsScreen
@@ -127,15 +129,21 @@ fun MainPagerScreen(
                             container.libraryUseCases,
                             container.fieldUseCases,
                             container.backupRepository,
-                            container.reportDataResolver
+                            container.reportExportCoordinator,
+                            container.visualExportCoordinator
                         )
                     )
                     val settingsState by settingsViewModel.uiState.collectAsState()
+                    val resolvedTheme = AppTheme.resolvedTheme
                     SettingsScreen(
                         state = settingsState,
                         onLayoutSettings = {
                             navController.navigate(SettingsRoutes.LAYOUT)
                         },
+                        onThemeManagement = {
+                            navController.navigate(SettingsRoutes.THEMES)
+                        },
+                        currentThemeName = resolvedTheme.name,
                         onFieldManagement = {
                             navController.navigate(SettingsRoutes.FIELDS)
                         },
@@ -147,7 +155,37 @@ fun MainPagerScreen(
                             navController.navigate(SettingsRoutes.TRASH)
                         },
                         onExportData = settingsViewModel::exportData,
-                        onPrepareReport = settingsViewModel::prepareReport,
+                        onStartVisualExport = { request ->
+                            request.toVisualExportRequestOrNull()?.let {
+                                settingsViewModel.startVisualExport(
+                                    request = it,
+                                    theme =
+                                        VisualExportThemeSnapshotFactory.create(
+                                            resolvedTheme
+                                        )
+                                )
+                            }
+                        },
+                        onVisualExportSafRequestConsumed =
+                            settingsViewModel::consumeVisualExportSafRequest,
+                        onVisualExportDestinationSelected =
+                            settingsViewModel::onVisualExportDestinationSelected,
+                        onVisualExportMessageShown =
+                            settingsViewModel::consumeVisualExportMessage,
+                        onStartReportExport = { config ->
+                            settingsViewModel.startReportExport(
+                                config = config,
+                                theme = VisualExportThemeSnapshotFactory.create(
+                                    resolvedTheme
+                                )
+                            )
+                        },
+                        onReportExportSafRequestConsumed =
+                            settingsViewModel::consumeReportExportSafRequest,
+                        onReportExportDestinationSelected =
+                            settingsViewModel::onReportExportDestinationSelected,
+                        onReportExportMessageShown =
+                            settingsViewModel::consumeReportExportMessage,
                         onImportFileSelected = settingsViewModel::prepareImport,
                         onConfirmImport = settingsViewModel::confirmImport,
                         onCancelImport = settingsViewModel::cancelPreparedImport,

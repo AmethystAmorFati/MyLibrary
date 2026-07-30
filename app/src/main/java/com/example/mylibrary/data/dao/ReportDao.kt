@@ -5,7 +5,6 @@ import androidx.room.Query
 import com.example.mylibrary.data.entity.FieldDefinitionEntity
 import com.example.mylibrary.data.entity.FieldValueEntity
 import com.example.mylibrary.data.entity.ItemTypeEntity
-import com.example.mylibrary.data.entity.RecordFieldValueEntity
 import com.example.mylibrary.data.model.ReportActivityRow
 import com.example.mylibrary.data.model.ReportItemTagRow
 import com.example.mylibrary.data.model.ReportQuoteRow
@@ -32,9 +31,8 @@ interface ReportDao {
             record.id AS record_id,
             record.item_id,
             record.start_date,
-            record.end_date,
-            record.rating_half_stars,
-            record.review,
+            record.duration_minutes,
+            record.created_at AS record_created_at,
             item.type_id,
             item_type.name AS type_name,
             item_type.sort_order AS type_sort_order,
@@ -42,6 +40,7 @@ interface ReportDao {
             item.cover_path,
             item.current_status_id,
             current_status.name AS current_status_name,
+            current_status.sort_order AS current_status_sort_order,
             (
                 SELECT creator_value.value
                 FROM field_values creator_value
@@ -111,21 +110,11 @@ interface ReportDao {
 
     @Query(
         """
-        SELECT record_value.*
-        FROM record_field_values record_value
-        WHERE record_value.record_id IN (:recordIds)
-          AND record_value.field_id IN (:fieldIds)
-        ORDER BY record_value.record_id, record_value.field_id
-        """
-    )
-    suspend fun getRecordFieldValues(
-        recordIds: List<Long>,
-        fieldIds: List<Long>
-    ): List<RecordFieldValueEntity>
-
-    @Query(
-        """
-        SELECT item_tag.item_id, tag.name
+        SELECT
+            item_tag.item_id,
+            tag.id AS tag_id,
+            tag.name,
+            tag.sort_order
         FROM item_tags item_tag
         JOIN tags tag ON tag.id = item_tag.tag_id
         LEFT JOIN tags parent ON parent.id = tag.parent_id

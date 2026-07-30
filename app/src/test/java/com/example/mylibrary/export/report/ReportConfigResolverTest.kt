@@ -79,7 +79,7 @@ class ReportConfigResolverTest {
     }
 
     @Test
-    fun resolvedConfigFreezesNamesUnitScopeAndAggregationInStableOrder() {
+    fun recordScopeFieldsAreIgnoredByTheReportLayer() {
         val original = field(
             id = 11,
             typeId = 1,
@@ -98,19 +98,9 @@ class ReportConfigResolverTest {
             ),
             types,
             listOf(original)
-        ) as ReportConfigResolution.Success
+        )
 
-        assertEquals(listOf(FieldAggregation.SUM, FieldAggregation.AVERAGE),
-            result.config.statisticFields.map { it.aggregation })
-        val frozen = result.config.statisticFields.first()
-        assertEquals("本次页数", frozen.fieldName)
-        assertEquals("页", frozen.unit)
-        assertEquals("阅读", frozen.itemTypeName)
-        assertEquals(FieldScope.RECORD, frozen.scope)
-
-        original.copy(name = "已改名", unit = "分钟")
-        assertEquals("本次页数", frozen.fieldName)
-        assertEquals("页", frozen.unit)
+        assertTrue(result is ReportConfigResolution.Invalid)
     }
 
     @Test

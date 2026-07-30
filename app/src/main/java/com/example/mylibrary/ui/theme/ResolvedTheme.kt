@@ -105,7 +105,8 @@ data class ResolvedTheme(
     val typography: AppTypography,
     val fontResolver: AppFontResolver,
     val navigationIconResolver: NavigationIconResolver,
-    val darkSystemBarIcons: Boolean
+    val darkSystemBarIcons: Boolean,
+    val themeGeneration: Long = 0L
 ) {
     internal val appColors: AppColors = AppColors(
         surfaces = surfaces.fallbackColors(),

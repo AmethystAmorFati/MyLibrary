@@ -23,4 +23,13 @@ class SettingsPageLayoutPolicyTest {
         assertFalse(SettingsPageLayoutPolicy.verticallyCentersContent)
         assertEquals(BottomContentPadding, SettingsPageLayoutPolicy.contentBottomPadding)
     }
+
+    @Test
+    fun aboutUsesTheDeclaredAuthorAndRepositoryLinks() {
+        assertEquals("https://github.com/PeanutPersimmon", SETTINGS_AUTHOR_URL)
+        assertEquals(
+            "https://github.com/PeanutPersimmon/MyLibrary",
+            SETTINGS_REPOSITORY_URL
+        )
+    }
 }

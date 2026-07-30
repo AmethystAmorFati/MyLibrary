@@ -3,7 +3,6 @@ package com.example.mylibrary.export.report
 import com.example.mylibrary.domain.model.FieldAggregation
 import com.example.mylibrary.domain.model.FieldDataType
 import com.example.mylibrary.domain.model.FieldOptionDefinition
-import com.example.mylibrary.domain.model.FieldScope
 import com.example.mylibrary.domain.model.FieldValueParser
 import java.math.BigDecimal
 import org.junit.Assert.assertEquals
@@ -87,7 +86,6 @@ class ReportFieldValueFormatterTest {
         itemTypeSortOrder = 0,
         fieldName = "字段",
         fieldType = type,
-        scope = FieldScope.ITEM,
         unit = unit,
         aggregation = null,
         fieldSortOrder = 0,

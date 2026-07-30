@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.unit.dp
 import com.example.mylibrary.ui.components.LibrarySearchField
 import com.example.mylibrary.ui.components.MainPageHeader
 import com.example.mylibrary.ui.components.noRippleClickable
@@ -34,9 +31,6 @@ fun LibraryTopBar(
     onQueryChange: (String) -> Unit,
     onSearchOpen: () -> Unit,
     onSearchClose: () -> Unit,
-    onPosterExport: () -> Unit,
-    isPosterExporting: Boolean,
-    canExportPoster: Boolean,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -97,33 +91,6 @@ fun LibraryTopBar(
             title = "资料库",
             modifier = modifier,
             actions = {
-                Box(
-                    modifier = Modifier
-                        .size(TopBarActionSize)
-                        .noRippleClickable(
-                            enabled = canExportPoster && !isPosterExporting,
-                            onClick = onPosterExport
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isPosterExporting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = colors.textPrimary,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Outlined.IosShare,
-                            contentDescription = "导出当前封面海报",
-                            tint = if (canExportPoster) {
-                                colors.textPrimary
-                            } else {
-                                colors.mutedText
-                            }
-                        )
-                    }
-                }
                 Box(
                     modifier = Modifier
                         .size(TopBarActionSize)

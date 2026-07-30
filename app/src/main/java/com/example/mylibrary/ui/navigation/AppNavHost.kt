@@ -47,6 +47,9 @@ import com.example.mylibrary.ui.settings.StatusManagementViewModelFactory
 import com.example.mylibrary.ui.settings.TagManagementScreen
 import com.example.mylibrary.ui.settings.TagManagementViewModel
 import com.example.mylibrary.ui.settings.TagManagementViewModelFactory
+import com.example.mylibrary.ui.settings.ThemeManagementScreen
+import com.example.mylibrary.ui.settings.ThemeManagementViewModel
+import com.example.mylibrary.ui.settings.ThemeManagementViewModelFactory
 import com.example.mylibrary.ui.settings.TrashScreen
 import com.example.mylibrary.ui.settings.TrashViewModel
 import com.example.mylibrary.ui.settings.TrashViewModelFactory
@@ -123,10 +126,38 @@ fun AppNavHost(
         annualCalendarRoute(navController, container)
         fieldManagementRoute(navController, container)
         layoutSettingsRoute(navController, container)
+        themeManagementRoute(container)
         tagManagementRoute(navController, container)
         statusManagementRoute(navController, container)
         itemTypeManagementRoute(navController, container)
         trashRoute(navController, container)
+    }
+}
+
+private fun androidx.navigation.NavGraphBuilder.themeManagementRoute(
+    container: AppContainer
+) {
+    composable(SettingsRoutes.THEMES) {
+        val viewModel: ThemeManagementViewModel = viewModel(
+            factory = ThemeManagementViewModelFactory(
+                importer = container.themePackageImporter,
+                catalog = container.installedThemeCatalog,
+                repository = container.themeRepository,
+                sourceFactory = container.themePackageSourceFactory
+            )
+        )
+        val state by viewModel.uiState.collectAsState()
+        ThemeManagementScreen(
+            state = state,
+            onImportSelected = { uri ->
+                viewModel.importTheme(uri)
+            },
+            onApplyTheme = viewModel::applyTheme,
+            onDeleteTheme = viewModel::deleteTheme,
+            onMessageShown = viewModel::consumeMessage,
+            onConfirmReplace = viewModel::confirmReplaceTheme,
+            onCancelReplace = viewModel::cancelReplaceTheme
+        )
     }
 }
 

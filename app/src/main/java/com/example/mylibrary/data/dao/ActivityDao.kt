@@ -7,6 +7,7 @@ import androidx.room.Query
 import com.example.mylibrary.data.entity.ActivityEntity
 import com.example.mylibrary.data.model.ActivityRecordDateRow
 import com.example.mylibrary.data.model.ActivityRow
+import com.example.mylibrary.data.model.VisualExportActivityRow
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -37,6 +38,35 @@ interface ActivityDao {
         """
     )
     fun observeRowsBetween(startDate: Long, endDate: Long): Flow<List<ActivityRow>>
+
+    @Query(
+        """
+        SELECT
+            activity.id AS activity_id,
+            activity.date,
+            activity.item_id,
+            item.type_id,
+            activity.record_id,
+            COALESCE(record.created_at, activity.date) AS record_created_at,
+            item.title,
+            item.cover_path,
+            item.thumbnail_path
+        FROM activities activity
+        INNER JOIN items item ON item.id = activity.item_id
+        LEFT JOIN records record ON record.id = activity.record_id
+        WHERE activity.date BETWEEN :startDate AND :endDate
+          AND item.deleted_at IS NULL
+        ORDER BY
+            activity.date ASC,
+            record_created_at ASC,
+            COALESCE(activity.record_id, 0) ASC,
+            activity.id ASC
+        """
+    )
+    suspend fun getVisualExportRowsBetween(
+        startDate: Long,
+        endDate: Long
+    ): List<VisualExportActivityRow>
 
     @Query(
         """

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="完全在浏览器本地运行的 MyLibrary 主题包制作器"
+    />
+    <title>MyLibrary Theme Maker</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">LOCAL THEME TOOL</p>
+        <h1>MyLibrary Theme Maker</h1>
+      </div>
+      <p class="privacy-note">图片、字体和主题包仅在当前浏览器中处理，不会上传。</p>
+    </header>
+
+    <main class="maker-layout">
+      <form id="theme-form" class="editor-column" novalidate>
+        <fieldset id="editor-fieldset">
+          <section class="form-card">
+            <div class="section-heading">
+              <h2>一、基础信息</h2>
+              <p>填写 Manifest v1 的主题身份信息。</p>
+            </div>
+            <div class="field-grid basic-info-grid">
+              <label class="field">
+                <span class="field-label">主题 ID</span>
+                <input
+                  id="theme-id"
+                  maxlength="64"
+                  autocomplete="off"
+                  aria-describedby="theme-id-hint theme-id-error"
+                />
+                <small id="theme-id-hint">自动生成，修改后将创建新主题身份。</small>
+                <button type="button" id="new-theme-button" class="secondary-action">新建主题</button>
+                <span id="theme-id-error" class="field-error" data-error-for="id"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">主题名称</span>
+                <input id="theme-name" maxlength="256" />
+                <small>显示在 MyLibrary 主题管理页面中的名称。</small>
+                <span class="field-error" data-error-for="name"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">作者（可空）</span>
+                <input id="theme-author" maxlength="256" />
+                <small>可以留空，不会自动写入身份信息。</small>
+                <span class="field-error" aria-hidden="true"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">版本</span>
+                <input id="theme-version" maxlength="256" />
+                <small>保持自由文本，不额外强制语义版本。</small>
+                <span class="field-error" data-error-for="version"></span>
+              </label>
+            </div>
+          </section>
+
+          <section class="form-card">
+            <div class="section-heading">
+              <h2>二、三种表面</h2>
+              <p>BACKGROUND、CARD 和 DIALOG 各自选择纯色或图片。</p>
+            </div>
+            <div id="surface-fields" class="surface-grid"></div>
+          </section>
+
+          <section class="form-card">
+            <div class="section-heading">
+              <h2>三、五种内容颜色</h2>
+              <p>色板、ARGB 与 Alpha 会同步；制作器不会自动改写配色。</p>
+            </div>
+            <div id="color-fields" class="content-color-grid"></div>
+            <div id="contrast-warning" class="inline-warning" hidden>
+              文字与背景对比度可能较低
+            </div>
+          </section>
+
+          <section class="form-card">
+            <div class="section-heading">
+              <h2>四、字体</h2>
+              <p>仅支持 TTF。B 未提供时回退 A，A 也未提供时使用系统字体。</p>
+            </div>
+            <div id="font-fields" class="font-file-grid"></div>
+            <h3 class="subsection-title">字体角色映射</h3>
+            <div id="font-assignment-fields" class="role-grid"></div>
+            <p class="compatibility-note">
+              最终兼容性仍由 MyLibrary Android App 导入校验决定。
+            </p>
+          </section>
+
+          <section class="form-card">
+            <div class="section-heading">
+              <h2>五、导航图标</h2>
+              <p>每个槽位可单独配置；未选择 normal 时使用 App 内置图标。</p>
+            </div>
+            <label class="field navigation-rendering-field">
+              <span class="field-label">渲染模式</span>
+              <select id="navigation-rendering">
+                <option value="ORIGINAL">ORIGINAL · 保留原图色彩</option>
+                <option value="MONOCHROME">MONOCHROME · 使用 Alpha 蒙版</option>
+              </select>
+              <small>渲染模式对所有外部导航图标统一生效。</small>
+            </label>
+            <div id="navigation-fields" class="navigation-grid"></div>
+          </section>
+
+          <section class="form-card">
+            <div class="section-heading">
+              <h2>六、系统栏</h2>
+              <p>系统栏图标明暗由主题显式指定，不根据背景自动推断。</p>
+            </div>
+            <label class="toggle-row">
+              <input id="dark-system-bar-icons" type="checkbox" />
+              <span>
+                <strong>系统栏使用深色图标</strong>
+                <small>开启适合浅色背景，关闭适合深色背景。</small>
+              </span>
+            </label>
+          </section>
+
+          <section class="export-card">
+            <div id="summary-errors" class="summary-errors" hidden></div>
+            <button id="generate-button" type="button" class="primary-action">
+              生成主题包
+            </button>
+            <div id="generation-status" class="generation-status" role="status">
+              编辑中
+            </div>
+            <details id="generation-details" hidden>
+              <summary>技术详情</summary>
+              <pre></pre>
+            </details>
+          </section>
+        </fieldset>
+      </form>
+
+      <aside class="preview-column">
+        <div class="preview-heading">
+          <div>
+            <p class="eyebrow">APPROXIMATE</p>
+            <h2>近似预览</h2>
+          </div>
+          <span>非像素级</span>
+        </div>
+        <p class="preview-disclaimer">
+          浏览器与 Android 的字体渲染、图片解码和系统后备字体可能不同，实际效果以 App 为准。
+        </p>
+        <div id="phone-preview" class="phone-shell">
+          <div class="phone-screen" data-preview-surface="background">
+            <div class="preview-system-bar">
+              <span>9:41</span>
+              <svg
+                class="system-status-icon"
+                viewBox="0 0 44 12"
+                aria-label="系统状态示意"
+              >
+                <path d="M1 10h3V7H1zm5 0h3V5H6zm5 0h3V3h-3zm5 0h3V1h-3z" />
+                <path d="M25 9a7 7 0 0 1 10 0l-1.5 1.5a5 5 0 0 0-7 0zm2.5-2.5a3.6 3.6 0 0 1 5 0L31.2 8a1.7 1.7 0 0 0-2.4 0z" />
+                <rect x="37" y="2" width="6" height="8" rx="1" fill="none" stroke="currentColor" />
+                <path d="M44 5v2" />
+              </svg>
+            </div>
+            <div class="preview-content">
+              <p class="preview-brand">MyLibrary</p>
+              <h3 class="preview-title">我的文化档案</h3>
+              <div class="preview-card" data-preview-surface="card">
+                <span class="preview-meta">本月记录</span>
+                <strong>在安静的夜晚读完一本书</strong>
+                <p>主文字、次文字和边框会跟随当前内容色。</p>
+                <span class="preview-pill">查看详情</span>
+              </div>
+              <div class="preview-dialog-wrap">
+                <div class="preview-dialog" data-preview-surface="dialog">
+                  <span class="preview-meta">DIALOG</span>
+                  <strong>保存本次记录？</strong>
+                  <p>这是一个用于观察弹窗表面的近似示例。</p>
+                  <div><span>取消</span><span class="dialog-confirm">确认</span></div>
+                </div>
+              </div>
+            </div>
+            <nav class="preview-navigation" aria-label="预览导航">
+              <button type="button" data-preview-nav="home">
+                <span class="preview-nav-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z" />
+                  </svg>
+                </span>
+                <small>首页</small>
+              </button>
+              <button type="button" data-preview-nav="library">
+                <span class="preview-nav-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="4" y="3" width="5" height="18" rx="1" />
+                    <rect x="10" y="3" width="5" height="18" rx="1" />
+                    <path d="m16 4 3.6-1 4.2 16-3.6 1z" />
+                  </svg>
+                </span>
+                <small>资料库</small>
+              </button>
+              <button type="button" data-preview-nav="statistics">
+                <span class="preview-nav-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="13" width="4" height="8" rx="1" />
+                    <rect x="10" y="8" width="4" height="13" rx="1" />
+                    <rect x="17" y="3" width="4" height="18" rx="1" />
+                  </svg>
+                </span>
+                <small>统计</small>
+              </button>
+              <button type="button" data-preview-nav="settings">
+                <span class="preview-nav-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 2.8 14 4l2.3-.4.9 2.2 2.2.9-.4 2.3 1.2 2-1.2 2 .4 2.3-2.2.9-.9 2.2L14 18l-2 1.2L10 18l-2.3.4-.9-2.2-2.2-.9L5 13l-1.2-2L5 9l-.4-2.3 2.2-.9.9-2.2L10 4z" />
+                    <circle cx="12" cy="11" r="3" class="svg-cutout" />
+                  </svg>
+                </span>
+                <small>设置</small>
+              </button>
+            </nav>
+          </div>
+        </div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

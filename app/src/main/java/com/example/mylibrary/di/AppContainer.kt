@@ -1,6 +1,8 @@
 package com.example.mylibrary.di
 
 import android.content.Context
+import com.example.mylibrary.data.preferences.DataStoreThemePreferenceStore
+import com.example.mylibrary.data.preferences.ThemePreferenceStore
 import com.example.mylibrary.backup.BackupDatabaseStore
 import com.example.mylibrary.backup.BackupRepository
 import com.example.mylibrary.backup.DataExportService
@@ -77,8 +79,21 @@ import com.example.mylibrary.domain.usecase.ObserveTimelineRecordsUseCase
 import com.example.mylibrary.domain.usecase.ObserveCustomFieldStatisticsUseCase
 import com.example.mylibrary.domain.usecase.SaveItemUseCase
 import com.example.mylibrary.ui.theme.DefaultThemeRepository
+import com.example.mylibrary.ui.theme.ThemeGenerationSource
 import com.example.mylibrary.ui.theme.ThemeRepository
+import com.example.mylibrary.ui.theme.importer.ContentUriThemePackageSourceFactory
+import com.example.mylibrary.ui.theme.importer.FileInstalledThemeCatalog
+import com.example.mylibrary.ui.theme.importer.InstalledThemeCatalog
+import com.example.mylibrary.ui.theme.importer.InstalledThemeLoader
+import com.example.mylibrary.ui.theme.importer.ThemeInstaller
+import com.example.mylibrary.ui.theme.importer.ThemePackageImporter
+import com.example.mylibrary.ui.theme.importer.ThemePackageSourceFactory
 import com.example.mylibrary.export.report.ReportDataResolver
+import com.example.mylibrary.export.report.ReportExportCoordinator
+import com.example.mylibrary.export.report.ReportExportService
+import com.example.mylibrary.export.visual.RoomVisualExportDataSource
+import com.example.mylibrary.export.visual.VisualExportCoordinator
+import com.example.mylibrary.export.visual.VisualExportService
 
 interface AppContainer {
     val database: LibraryDatabase
@@ -94,16 +109,57 @@ interface AppContainer {
     val userPreferencesRepository: UserPreferencesRepository
     val backupRepository: BackupRepository
     val reportDataResolver: ReportDataResolver
+    val reportExportCoordinator: ReportExportCoordinator
+    val visualExportCoordinator: VisualExportCoordinator
+    val themePackageImporter: ThemePackageImporter
+    val themeInstaller: ThemeInstaller
+    val installedThemeLoader: InstalledThemeLoader
+    val installedThemeCatalog: InstalledThemeCatalog
+    val themePreferenceStore: ThemePreferenceStore
+    val themePackageSourceFactory: ThemePackageSourceFactory
     val themeRepository: ThemeRepository
 }
 
 class DefaultAppContainer(
     context: Context
 ) : AppContainer {
-    override val themeRepository: ThemeRepository = DefaultThemeRepository()
+    private val applicationContext = context.applicationContext
+    private val themeGenerationSource = ThemeGenerationSource()
+    private val themeStorageRoot =
+        java.io.File(applicationContext.filesDir, "themes")
+
+    override val installedThemeLoader = InstalledThemeLoader()
+    override val themeInstaller = ThemeInstaller(
+        rootDirectory = themeStorageRoot,
+        installedThemeLoader = installedThemeLoader
+    )
+    override val themePackageImporter = ThemePackageImporter(
+        temporaryRoot = java.io.File(
+            applicationContext.cacheDir,
+            "theme-package-imports"
+        ),
+        installer = themeInstaller,
+        generationSource = themeGenerationSource::next
+    )
+    override val installedThemeCatalog: InstalledThemeCatalog =
+        FileInstalledThemeCatalog(
+            rootDirectory = themeInstaller.installedDirectory,
+            installedThemeLoader = installedThemeLoader
+        )
+    override val themePreferenceStore: ThemePreferenceStore =
+        DataStoreThemePreferenceStore(applicationContext)
+    override val themePackageSourceFactory: ThemePackageSourceFactory =
+        ContentUriThemePackageSourceFactory(applicationContext)
+    override val themeRepository: ThemeRepository =
+        DefaultThemeRepository(
+            preferenceStore = themePreferenceStore,
+            installedThemeCatalog = installedThemeCatalog,
+            themeInstaller = themeInstaller,
+            generationSource = themeGenerationSource::next
+        )
 
     override val database: LibraryDatabase =
-        LibraryDatabase.getInstance(context)
+        LibraryDatabase.getInstance(applicationContext)
 
     private val libraryRepository = OfflineLibraryRepository(
         database = database,
@@ -142,8 +198,21 @@ class DefaultAppContainer(
     )
     private val customFieldStatisticsRepository =
         OfflineCustomFieldStatisticsRepository(database.dynamicFieldDao())
+    private val visualExportDataSource =
+        RoomVisualExportDataSource(database.activityDao())
     override val reportDataResolver =
         ReportDataResolver(RoomReportDataSource(database))
+    override val reportExportCoordinator: ReportExportCoordinator =
+        ReportExportService(
+            context = context,
+            dataResolver = reportDataResolver,
+            visualExportDataSource = visualExportDataSource
+        )
+    override val visualExportCoordinator: VisualExportCoordinator =
+        VisualExportService(
+            context = context,
+            dataSource = visualExportDataSource
+        )
 
     override val libraryUseCases = LibraryUseCases(
         observeItems = ObserveLibraryItemsUseCase(libraryRepository),

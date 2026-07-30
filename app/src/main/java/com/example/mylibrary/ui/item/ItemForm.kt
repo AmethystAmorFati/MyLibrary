@@ -1,5 +1,11 @@
 package com.example.mylibrary.ui.item
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,7 +56,9 @@ import com.example.mylibrary.ui.components.CoverImage
 import com.example.mylibrary.ui.components.DatePickerBottomSheet
 import com.example.mylibrary.ui.components.FieldRow
 import com.example.mylibrary.ui.components.LibraryTextField
+import com.example.mylibrary.ui.components.RatingStarsDefaults
 import com.example.mylibrary.ui.components.TagSelectionSheet
+import com.example.mylibrary.ui.components.StarRatingBar
 import com.example.mylibrary.ui.components.noRippleClickable
 import com.example.mylibrary.ui.quote.formatQuoteLocation
 import com.example.mylibrary.ui.theme.AppTheme
@@ -367,14 +375,7 @@ fun ItemForm(
                 },
                 onDismiss = { activeDynamicFieldId = null }
             )
-            FieldDataType.RATING -> FieldRatingBottomSheet(
-                field = field,
-                onConfirm = {
-                    onDynamicValueChange(field.definitionId, it)
-                    activeDynamicFieldId = null
-                },
-                onDismiss = { activeDynamicFieldId = null }
-            )
+            FieldDataType.RATING -> Unit
             FieldDataType.BOOLEAN -> Unit
         }
     }
@@ -567,10 +568,41 @@ internal fun DynamicFieldEditorRow(
                 }
             )
         }
+        FieldDataType.RATING -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("dynamic_field_${field.definitionId}"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = field.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                StarRatingBar(
+                    ratingHalfStars = field.value.toIntOrNull(),
+                    onRatingChange = {
+                        onValueChange(it?.toString().orEmpty())
+                    },
+                    starSize = RatingStarsDefaults.RecordCardStarSize,
+                    starSpacing = RatingStarsDefaults.RecordCardStarSpacing,
+                    clearFullStarOnRepeat = true,
+                    modifier = Modifier.testTag(
+                        "item_rating_field_${field.definitionId}"
+                    )
+                )
+            }
+        }
         FieldDataType.DATE,
         FieldDataType.SINGLE_SELECT,
-        FieldDataType.MULTI_SELECT,
-        FieldDataType.RATING -> {
+        FieldDataType.MULTI_SELECT -> {
             FieldRow(
                 label = field.name,
                 value = field.displayValue(),

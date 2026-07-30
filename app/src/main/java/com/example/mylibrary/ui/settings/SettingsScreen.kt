@@ -1,5 +1,6 @@
 package com.example.mylibrary.ui.settings
 
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,9 +62,18 @@ fun SettingsScreen(
     onFieldManagement: () -> Unit,
     onTagManagement: () -> Unit,
     onStatusManagement: () -> Unit,
+    onThemeManagement: () -> Unit = {},
+    currentThemeName: String = "MyLibrary 默认主题",
     onTrash: () -> Unit = {},
     onExportData: (Uri) -> Unit = {},
-    onPrepareReport: (ReportExportConfig) -> Unit = {},
+    onStartVisualExport: (SettingsExportRequest) -> Unit = {},
+    onVisualExportSafRequestConsumed: () -> Unit = {},
+    onVisualExportDestinationSelected: (Uri?) -> Unit = {},
+    onVisualExportMessageShown: () -> Unit = {},
+    onStartReportExport: (ReportExportConfig) -> Unit = {},
+    onReportExportSafRequestConsumed: () -> Unit = {},
+    onReportExportDestinationSelected: (Uri?) -> Unit = {},
+    onReportExportMessageShown: () -> Unit = {},
     onImportFileSelected: (Uri) -> Unit = {},
     onConfirmImport: () -> Unit = {},
     onCancelImport: () -> Unit = {},
@@ -83,13 +93,54 @@ fun SettingsScreen(
     ) { uri ->
         uri?.let(onExportData)
     }
-    val placeholder: (String) -> Unit = { title ->
-        Toast.makeText(context, "$title 暂未开放", Toast.LENGTH_SHORT).show()
+    val visualExportDestination = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        onVisualExportDestinationSelected(uri)
+    }
+    val reportPngDestination = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        onReportExportDestinationSelected(uri)
+    }
+    val reportPdfDestination = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        onReportExportDestinationSelected(uri)
     }
     LaunchedEffect(state.backupMessage) {
         state.backupMessage?.let { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             onBackupMessageShown()
+        }
+    }
+    LaunchedEffect(state.visualExportMessage) {
+        state.visualExportMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            onVisualExportMessageShown()
+        }
+    }
+    LaunchedEffect(state.visualExportSafRequest?.id) {
+        state.visualExportSafRequest?.let { request ->
+            visualExportDestination.launch(request.displayName)
+            onVisualExportSafRequestConsumed()
+        }
+    }
+    LaunchedEffect(state.reportExportMessage) {
+        state.reportExportMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            onReportExportMessageShown()
+        }
+    }
+    LaunchedEffect(state.reportExportSafRequest?.id) {
+        state.reportExportSafRequest?.let { request ->
+            when (request.destination) {
+                ReportSafDestination.DIRECTORY ->
+                    reportPngDestination.launch(null)
+                ReportSafDestination.PDF_DOCUMENT ->
+                    reportPdfDestination.launch(request.displayName)
+            }
+            onReportExportSafRequestConsumed()
         }
     }
 
@@ -107,10 +158,15 @@ fun SettingsScreen(
             SettingsGroupCard(title = "外观", tag = "settings_group_appearance") {
                 SettingsRow("布局", tag = "settings_layout", onClick = onLayoutSettings)
                 GroupDivider()
-                SettingsRow("主题", tag = "settings_theme") { placeholder("主题") }
+                SettingsRow(
+                    title = "主题",
+                    subtitle = currentThemeName,
+                    tag = "settings_theme",
+                    onClick = onThemeManagement
+                )
             }
 
-            SettingsGroupCard(title = "数据", tag = "settings_group_data") {
+            SettingsGroupCard(title = "自定义", tag = "settings_group_customization") {
                 SettingsRow("状态管理", tag = "settings_statuses", onClick = onStatusManagement)
                 GroupDivider()
                 SettingsRow("标签管理", tag = "settings_tags", onClick = onTagManagement)
@@ -122,37 +178,51 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsGroupCard(title = "备份", tag = "settings_group_backup") {
+            SettingsGroupCard(title = "导出", tag = "settings_group_export") {
                 SettingsRow(
-                    "导入数据",
-                    tag = "settings_import_data",
-                    enabled = !state.isBackupBusy
+                    "导出月历页",
+                    tag = "settings_export_calendar",
+                    enabled = !state.isSettingsOperationBusy
+                ) { activeDialog = SettingsDialogKind.EXPORT_CALENDAR_PAGE }
+                GroupDivider()
+                SettingsRow(
+                    "导出年度海报",
+                    tag = "settings_export_year_poster",
+                    enabled = !state.isSettingsOperationBusy
+                ) { activeDialog = SettingsDialogKind.EXPORT_YEAR_POSTER }
+                GroupDivider()
+                SettingsRow(
+                    "导出月度报告",
+                    tag = "settings_export_monthly_report",
+                    enabled = !state.isSettingsOperationBusy
                 ) {
-                    filePicker.launch(arrayOf("application/zip", "application/octet-stream"))
+                    activeDialog = SettingsDialogKind.EXPORT_MONTHLY_REPORT
                 }
                 GroupDivider()
                 SettingsRow(
-                    "导出数据",
+                    "导出年度报告",
+                    tag = "settings_export_yearly_report",
+                    enabled = !state.isSettingsOperationBusy
+                ) {
+                    activeDialog = SettingsDialogKind.EXPORT_YEARLY_REPORT
+                }
+            }
+
+            SettingsGroupCard(title = "数据", tag = "settings_group_data") {
+                SettingsRow(
+                    "数据导出／备份",
                     tag = "settings_export_data",
-                    enabled = !state.isBackupBusy
+                    enabled = !state.isSettingsOperationBusy
                 ) {
                     backupDestination.launch(BackupFileNames.defaultName())
                 }
                 GroupDivider()
-                SettingsRow("导出月历页", tag = "settings_export_calendar") {
-                    activeDialog = SettingsDialogKind.EXPORT_CALENDAR_PAGE
-                }
-                GroupDivider()
-                SettingsRow("导出年度海报", tag = "settings_export_year_poster") {
-                    activeDialog = SettingsDialogKind.EXPORT_YEAR_POSTER
-                }
-                GroupDivider()
-                SettingsRow("导出月度报告", tag = "settings_export_monthly_report") {
-                    activeDialog = SettingsDialogKind.EXPORT_MONTHLY_REPORT
-                }
-                GroupDivider()
-                SettingsRow("导出年度报告", tag = "settings_export_yearly_report") {
-                    activeDialog = SettingsDialogKind.EXPORT_YEARLY_REPORT
+                SettingsRow(
+                    "数据导入／恢复",
+                    tag = "settings_import_data",
+                    enabled = !state.isSettingsOperationBusy
+                ) {
+                    filePicker.launch(arrayOf("application/zip", "application/octet-stream"))
                 }
                 GroupDivider()
                 SettingsRow(
@@ -187,14 +257,13 @@ fun SettingsScreen(
                 filePicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
             },
             onConfirmAction = { request ->
-                if (request is SettingsExportRequest.Report) {
-                    onPrepareReport(request.config)
-                } else {
-                    Toast.makeText(
-                        context,
-                        "${request.displayTitle()}配置已确认，正式渲染后续接入",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                when (request) {
+                    is SettingsExportRequest.CalendarPage,
+                    is SettingsExportRequest.YearPoster ->
+                        onStartVisualExport(request)
+                    is SettingsExportRequest.Report ->
+                        onStartReportExport(request.config)
+                    SettingsExportRequest.FullBackup -> Unit
                 }
             }
         )
@@ -223,9 +292,34 @@ fun SettingsScreen(
     state.backupOperation?.let { operation ->
         BackupLoadingDialog(operation)
     }
+    state.visualExportOperation
+        ?.takeIf { it != SettingsVisualExportOperation.WAITING_FOR_DESTINATION }
+        ?.let { operation ->
+            VisualExportLoadingDialog(operation)
+        }
+    state.reportExportOperation
+        ?.takeIf { it != SettingsReportExportOperation.WAITING_FOR_DESTINATION }
+        ?.let { operation ->
+            ReportExportLoadingDialog(operation)
+        }
 
     if (showAbout) {
-        AboutDialog(onDismiss = { showAbout = false })
+        AboutDialog(
+            onDismiss = { showAbout = false },
+            onOpenLink = { url ->
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    )
+                }.onFailure {
+                    Toast.makeText(
+                        context,
+                        "无法打开链接",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        )
     }
 }
 
@@ -261,6 +355,7 @@ private fun SettingsGroupCard(
 private fun SettingsRow(
     title: String,
     tag: String,
+    subtitle: String? = null,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
@@ -272,12 +367,23 @@ private fun SettingsRow(
             .padding(CardContentPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
+        Column(
             modifier = Modifier.weight(1f),
-            style = AppTheme.typography.body,
-            color = AppTheme.colors.textPrimary
-        )
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = title,
+                style = AppTheme.typography.body,
+                color = AppTheme.colors.textPrimary
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = AppTheme.typography.metadata,
+                    color = AppTheme.colors.textSecondary
+                )
+            }
+        }
         Icon(
             imageVector = Icons.Outlined.ChevronRight,
             contentDescription = null,
@@ -313,7 +419,81 @@ private fun BackupLoadingDialog(operation: SettingsBackupOperation) {
                         SettingsBackupOperation.VALIDATING -> "正在校验备份…"
                         SettingsBackupOperation.EXPORTING -> "正在导出数据…"
                         SettingsBackupOperation.IMPORTING -> "正在导入数据…"
-                        SettingsBackupOperation.PREPARING_REPORT -> "正在准备报告数据…"
+                    },
+                    style = AppTheme.typography.body,
+                    color = AppTheme.colors.textPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisualExportLoadingDialog(operation: SettingsVisualExportOperation) {
+    Dialog(onDismissRequest = {}) {
+        AppThemeSurface(
+            role = SurfaceRole.DIALOG,
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .testTag("settings_visual_export_loading"),
+            shape = LibraryShapes.large,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = AppTheme.colors.accent,
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = when (operation) {
+                        SettingsVisualExportOperation.GENERATING -> "正在生成…"
+                        SettingsVisualExportOperation.SAVING -> "正在保存…"
+                        SettingsVisualExportOperation.WAITING_FOR_DESTINATION ->
+                            "正在等待保存位置…"
+                    },
+                    style = AppTheme.typography.body,
+                    color = AppTheme.colors.textPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportExportLoadingDialog(operation: SettingsReportExportOperation) {
+    Dialog(onDismissRequest = {}) {
+        AppThemeSurface(
+            role = SurfaceRole.DIALOG,
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .testTag("settings_report_export_loading"),
+            shape = LibraryShapes.large,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = AppTheme.colors.accent,
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = when (operation) {
+                        SettingsReportExportOperation.RESOLVING_AND_RENDERING ->
+                            "正在生成报告…"
+                        SettingsReportExportOperation.SAVING -> "正在保存…"
+                        SettingsReportExportOperation.WAITING_FOR_DESTINATION ->
+                            "正在等待保存位置…"
                     },
                     style = AppTheme.typography.body,
                     color = AppTheme.colors.textPrimary
@@ -333,7 +513,10 @@ private fun GroupDivider() {
 }
 
 @Composable
-private fun AboutDialog(onDismiss: () -> Unit) {
+private fun AboutDialog(
+    onDismiss: () -> Unit,
+    onOpenLink: (String) -> Unit
+) {
     Dialog(onDismissRequest = onDismiss) {
         AppThemeSurface(
             role = SurfaceRole.DIALOG,
@@ -363,6 +546,27 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                     style = AppTheme.typography.metadata,
                     color = AppTheme.colors.mutedText
                 )
+                AboutEntry(label = "Author", value = "PeanutPersimmon")
+                AboutEntry(
+                    label = "GitHub",
+                    value = "PeanutPersimmon",
+                    tag = "settings_about_github",
+                    onClick = { onOpenLink(SETTINGS_AUTHOR_URL) }
+                )
+                AboutEntry(
+                    label = "Repository",
+                    value = "MyLibrary",
+                    tag = "settings_about_repository",
+                    onClick = { onOpenLink(SETTINGS_REPOSITORY_URL) }
+                )
+                AboutEntry(label = "Development", value = "OpenAI Codex")
+                Text(
+                    text = "OpenAI Codex 用于代码生成、重构建议、测试与文档辅助。" +
+                        "产品方向、设计决策、代码审核与最终实现责任由 " +
+                        "PeanutPersimmon 负责。",
+                    style = AppTheme.typography.metadata,
+                    color = AppTheme.colors.textSecondary
+                )
                 Spacer(Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -382,13 +586,45 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     }
 }
 
-private fun SettingsExportRequest.displayTitle(): String = when (this) {
-    SettingsExportRequest.FullBackup -> "导出数据"
-    is SettingsExportRequest.CalendarPage -> "导出月历页"
-    is SettingsExportRequest.YearPoster -> "导出年度海报"
-    is SettingsExportRequest.Report -> if (config.month == null) {
-        "导出年度报告"
-    } else {
-        "导出月度报告"
+@Composable
+private fun AboutEntry(
+    label: String,
+    value: String,
+    tag: String? = null,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (tag == null) Modifier else Modifier.testTag(tag))
+            .then(
+                if (onClick == null) {
+                    Modifier
+                } else {
+                    Modifier.noRippleClickable(onClick = onClick)
+                }
+            )
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = AppTheme.typography.metadata,
+            color = AppTheme.colors.textSecondary
+        )
+        Text(
+            text = value,
+            style = AppTheme.typography.body,
+            color = if (onClick == null) {
+                AppTheme.colors.textPrimary
+            } else {
+                AppTheme.colors.accent
+            }
+        )
     }
 }
+
+internal const val SETTINGS_AUTHOR_URL = "https://github.com/PeanutPersimmon"
+internal const val SETTINGS_REPOSITORY_URL =
+    "https://github.com/PeanutPersimmon/MyLibrary"

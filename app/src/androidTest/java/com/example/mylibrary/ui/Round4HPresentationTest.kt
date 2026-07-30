@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -39,24 +40,24 @@ class Round4HPresentationTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun settingsUsesFourGroupsAndAboutStaysInADialog() {
+    fun settingsUsesSemanticGroupsAndAboutStaysInADialog() {
         showSettings()
 
         listOf(
-            "settings_group_backup",
+            "settings_group_customization",
+            "settings_group_export",
             "settings_group_data",
             "settings_group_appearance",
             "settings_group_about"
         ).forEach { composeRule.onNodeWithTag(it).assertExists() }
         listOf(
-            "导入数据",
-            "导出数据",
+            "数据导入／恢复",
+            "数据导出／备份",
             "导出月历页",
             "导出年度海报",
             "导出月度报告",
             "导出年度报告",
             "回收站",
-            "作品类型",
             "状态管理",
             "标签管理",
             "自定义字段",
@@ -68,6 +69,11 @@ class Round4HPresentationTest {
         composeRule.onNodeWithTag("settings_about_dialog").assertExists()
         composeRule.onNodeWithText("私人文化档案库\n所有数据保存在本地设备中。")
             .assertExists()
+        composeRule.onNodeWithText("PeanutPersimmon").assertExists()
+        composeRule.onNodeWithText("PeanutPersimmon").assertExists()
+        composeRule.onNodeWithText("OpenAI Codex").assertExists()
+        composeRule.onNodeWithTag("settings_about_github").assertExists()
+        composeRule.onNodeWithTag("settings_about_repository").assertExists()
     }
 
     @Test
@@ -81,7 +87,17 @@ class Round4HPresentationTest {
         composeRule.onNodeWithText("取消").performClick()
         composeRule.onNodeWithTag("settings_export_year_poster").performClick()
         composeRule.onNodeWithTag("settings_dialog_export_year_poster").assertExists()
-        composeRule.onNodeWithTag("export_group_category").assertExists()
+        composeRule.onNodeWithTag("export_annual_categories").assertExists()
+        composeRule.onNodeWithText("类别").assertDoesNotExist()
+        listOf("全部", "书籍", "电影").forEach {
+            composeRule.onNodeWithText(it).assertExists()
+        }
+        listOf("all", "book", "movie").forEach {
+            composeRule.onNodeWithTag("export_annual_category_$it").assertExists()
+        }
+        composeRule.onNodeWithTag("export_annual_category_all").assertIsSelected()
+        composeRule.onNodeWithTag("export_annual_category_book").performClick()
+        composeRule.onNodeWithTag("export_annual_category_book").assertIsSelected()
         composeRule.onNodeWithTag("export_month").assertDoesNotExist()
 
         composeRule.onNodeWithText("取消").performClick()
@@ -93,6 +109,10 @@ class Round4HPresentationTest {
         composeRule.onNodeWithTag("export_group_works").assertExists()
         composeRule.onNodeWithTag("export_group_statuses").assertExists()
         composeRule.onNodeWithTag("export_group_work_fields").assertExists()
+        composeRule.onNodeWithText("作品展示").assertExists()
+        composeRule.onNodeWithText("作品的自定义信息").assertExists()
+        composeRule.onNodeWithTag("export_report_showcase_styles").assertExists()
+        composeRule.onNodeWithTag("export_report_showcase_collage").assertIsSelected()
 
         composeRule.onNodeWithTag("export_category_1").performClick()
         composeRule.onNodeWithTag("export_work_field_11").assertExists()
@@ -109,6 +129,8 @@ class Round4HPresentationTest {
         composeRule.onNodeWithTag("export_month").assertDoesNotExist()
         composeRule.onNodeWithTag("export_group_category").assertExists()
         composeRule.onNodeWithTag("export_group_statistics").assertExists()
+        composeRule.onNodeWithTag("export_group_works").assertDoesNotExist()
+        composeRule.onNodeWithTag("export_group_work_fields").assertDoesNotExist()
     }
 
     @Test

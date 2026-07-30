@@ -2,9 +2,11 @@
 
 This document freezes the internal theme contract for schema version `1`. Phase
 3A-3 adds trusted, bounded PNG/WebP loading for the four bottom-navigation slots
-on top of the Phase 3A-1 TTF and Phase 3A-2 surface-image paths. Theme package
-selection, installation, and manifest decoding from disk are still not
-implemented.
+on top of the Phase 3A-1 TTF and Phase 3A-2 surface-image paths. Phase 4A adds
+strict JSON decoding and installation through the standard-ZIP
+`.mylibrarytheme` format documented in `THEME_PACKAGE_V1.md`. Phase 4B adds
+settings-based import, selection persistence, startup restore, deletion, and
+restore-default behavior without changing any Manifest v1 field.
 
 ## Manifest JSON
 
@@ -266,13 +268,20 @@ Allowed directories and extensions are:
 
 | Resource | Required prefix | Extensions |
 |---|---|---|
-| Background image | `surfaces/background/` | PNG, WebP, JPG, JPEG |
-| Card image | `surfaces/card/` | PNG, WebP |
-| Dialog image | `surfaces/dialog/` | PNG, WebP |
+| Background image | `surfaces/background.*` or `surfaces/background/` | PNG, WebP, JPG, JPEG |
+| Card image | `surfaces/card.*` or `surfaces/card/` | PNG, WebP |
+| Dialog image | `surfaces/dialog.*` or `surfaces/dialog/` | PNG, WebP |
 | Font A/B | `fonts/` | TTF |
 | Navigation icon | `icons/` | PNG, WebP |
 
 Extension checks are case-insensitive. Prefix checks are case-sensitive.
+
+For newly authored packages, the canonical surface paths are exactly
+`surfaces/background.*`, `surfaces/card.*`, and `surfaces/dialog.*`.
+`surfaces/background/<file>`, `surfaces/card/<file>`, and
+`surfaces/dialog/<file>` are Phase 3 legacy compatibility input: import and
+installed-theme loading accept them, installation may preserve them, and no
+producer may generate them after Phase 4B. No third path form is valid.
 
 ## Frozen limits
 
@@ -372,9 +381,12 @@ structured error. `resolveOrDefault` is internal startup-recovery behavior used 
 the Repository; it records the strict failure and publishes the compiled default.
 
 `ThemeRepository.currentTheme` contains the built-in default immediately upon
-repository construction. A configured restore request is resolved on the I/O
-dispatcher. Failure leaves the immediate default published and is exposed through
-`lastRestoreError`; `applyDefaultTheme()` clears that failure.
+repository construction. Phase 4B reads only a saved Theme ID from DataStore,
+strictly loads the corresponding App-private installed directory on the I/O
+dispatcher, and publishes one complete `ResolvedTheme`. Failure leaves the
+immediate default published, clears the invalid saved ID, and is exposed through
+`lastRestoreError`; `applyDefaultTheme()` clears the saved ID before publishing
+the compiled default.
 
 Strict and runtime fallback are intentionally different:
 
@@ -403,7 +415,12 @@ Strict and runtime fallback are intentionally different:
 - Theme package `version` may change without changing `schemaVersion` when only
   theme assets or values change.
 
-File selection, theme-package container validation, archive decoding, ZIP
-validation, AES-GCM, PBKDF2, installation, deletion, preview/confirmation,
-settings UI, DataStore theme selection, backup integration, and a Web theme
-authoring tool remain outside the implemented phases.
+`.mylibrarytheme` is a standard ZIP and has no encryption, password, PBKDF2,
+AES-GCM, DRM, or confidentiality claim. Those earlier plans are cancelled.
+Package validation and App-private atomic installation are implemented in Phase
+4A. Phase 4B implements file selection, immediate application, installed-theme
+listing and deletion, settings UI, DataStore Theme-ID selection, and startup
+restore. Phase 4C-1 adds a browser-local maker under `theme-maker/` which mirrors
+this contract and emits canonical paths only. Android preview/confirmation,
+backup integration, online distribution, and editing existing packages remain
+outside the implemented phases.

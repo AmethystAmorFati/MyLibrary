@@ -4,6 +4,9 @@ import com.example.mylibrary.domain.model.DynamicFieldDefinition
 import com.example.mylibrary.domain.model.FieldAggregation
 import com.example.mylibrary.domain.model.FieldDataType
 import com.example.mylibrary.domain.model.FieldScope
+import com.example.mylibrary.export.visual.AnnualPosterCategory
+import com.example.mylibrary.export.visual.VisualExportRequest
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,6 +14,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsExportConfigTest {
+    @Test
+    fun visualExportRequestsAreBuiltDirectlyFromConfirmedConfiguration() {
+        assertEquals(
+            VisualExportRequest.Calendar(2026, 7),
+            SettingsExportRequest.CalendarPage(2026, 7)
+                .toVisualExportRequestOrNull()
+        )
+        assertEquals(
+            VisualExportRequest.AnnualPoster(
+                2025,
+                AnnualPosterCategory.MOVIE
+            ),
+            SettingsExportRequest.YearPoster(
+                2025,
+                AnnualPosterCategory.MOVIE
+            ).toVisualExportRequestOrNull()
+        )
+        assertNull(SettingsExportRequest.FullBackup.toVisualExportRequestOrNull())
+    }
+
+    @Test
+    fun visualExportDefaultsUseCurrentDateAndAllAnnualCategory() {
+        val defaults = defaultVisualExportDialogValues(
+            LocalDate.of(2026, 7, 29)
+        )
+
+        assertEquals(2026, defaults.year)
+        assertEquals(7, defaults.month)
+        assertEquals(AnnualPosterCategory.ALL, defaults.annualCategory)
+    }
+
     @Test
     fun reportDefaultsSplitWorkFieldsFromStatisticSelections() {
         val monthly = ReportExportConfig(year = 2026, month = 7, typeId = null)
@@ -20,6 +54,7 @@ class SettingsExportConfigTest {
         assertEquals(DEFAULT_REPORT_WORK_FIELDS, monthly.workFields)
         assertTrue(monthly.workCustomFieldIds.isEmpty())
         assertTrue(monthly.statisticSelections.isEmpty())
+        assertEquals(ReportShowcaseStyle.COLLAGE, monthly.showcaseStyle)
         assertNull(yearly.month)
     }
 
@@ -38,7 +73,7 @@ class SettingsExportConfigTest {
             availableReportWorkFields(fields, 1).map { it.id }
         )
         assertEquals(
-            listOf(11L, 12L),
+            listOf(11L),
             availableReportStatisticFields(fields, 1).map { it.id }
         )
     }
@@ -113,6 +148,33 @@ class SettingsExportConfigTest {
 
         assertFalse(empty.hasContent())
         assertTrue(empty.copy(includeQuotes = true).hasContent())
+        assertTrue(empty.copy(month = null).hasContent())
+    }
+
+    @Test
+    fun itemFieldsRemainIndependentFromWorkShowcase() {
+        val fieldsOnly = ReportExportConfig(
+            year = 2026,
+            month = 7,
+            typeId = 1,
+            statistics = emptySet(),
+            workFields = emptySet(),
+            includeAllStatuses = false,
+            workCustomFieldIds = setOf(11),
+            includeItemInformation = false,
+            includeItemFields = true
+        ).normalized()
+        val showcaseOnly = fieldsOnly.copy(
+            workFields = DEFAULT_REPORT_WORK_FIELDS,
+            workCustomFieldIds = emptySet(),
+            includeItemInformation = true,
+            includeItemFields = false
+        ).normalized()
+
+        assertFalse(fieldsOnly.includeItemInformation)
+        assertTrue(fieldsOnly.includeItemFields)
+        assertTrue(showcaseOnly.includeItemInformation)
+        assertFalse(showcaseOnly.includeItemFields)
     }
 
     @Test

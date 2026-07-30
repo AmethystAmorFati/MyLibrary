@@ -4,6 +4,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.example.mylibrary.data.database.DefaultLibraryData
 import com.example.mylibrary.domain.model.FieldDataType
 import com.example.mylibrary.ui.theme.MyLibraryTheme
@@ -126,5 +127,66 @@ class Round4SPresentationTest {
         assertTrue(hoursUnit.width > hoursUnit.height)
         assertTrue(minutesUnit.width > minutesUnit.height)
         assertTrue(numberUnit.width >= numberUnit.height)
+    }
+
+    @Test
+    fun itemRatingFieldEditsInlineAndCanClearWithoutOpeningASheet() {
+        var value = "7"
+        composeRule.setContent {
+            MyLibraryTheme {
+                DynamicFieldEditorRow(
+                    field = DynamicFieldInputState(
+                        definitionId = 9L,
+                        name = "评分",
+                        dataType = FieldDataType.RATING,
+                        value = value
+                    ),
+                    onValueChange = { value = it },
+                    onEdit = { error("Item 评分不应打开 BottomSheet") }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("item_rating_field_9").assertExists()
+        composeRule.onNodeWithTag("star_rating_star_4").performClick()
+        composeRule.runOnIdle { assertEquals("8", value) }
+        composeRule.onNodeWithTag("star_rating_star_4").performClick()
+        composeRule.runOnIdle { assertEquals("", value) }
+    }
+
+    @Test
+    fun itemHalfRatingKeepsFiveEqualTouchSlotsAndFiveEqualStarGraphics() {
+        composeRule.setContent {
+            MyLibraryTheme {
+                DynamicFieldEditorRow(
+                    field = DynamicFieldInputState(
+                        definitionId = 10L,
+                        name = "评分",
+                        dataType = FieldDataType.RATING,
+                        value = "9"
+                    ),
+                    onValueChange = {},
+                    onEdit = {}
+                )
+            }
+        }
+
+        val touchBounds = (1..5).map { star ->
+            composeRule.onNodeWithTag("star_rating_star_$star")
+                .fetchSemanticsNode().boundsInRoot
+        }
+        val graphicBounds = (1..5).map { star ->
+            composeRule.onNodeWithTag("rating_star_graphic_$star")
+                .fetchSemanticsNode().boundsInRoot
+        }
+
+        touchBounds.drop(1).forEach { bounds ->
+            assertEquals(touchBounds.first().width, bounds.width, 0.5f)
+            assertEquals(touchBounds.first().height, bounds.height, 0.5f)
+        }
+        graphicBounds.drop(1).forEach { bounds ->
+            assertEquals(graphicBounds.first().width, bounds.width, 0.5f)
+            assertEquals(graphicBounds.first().height, bounds.height, 0.5f)
+        }
     }
 }

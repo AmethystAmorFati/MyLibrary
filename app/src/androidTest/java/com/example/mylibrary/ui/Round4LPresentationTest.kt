@@ -7,12 +7,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import com.example.mylibrary.domain.model.LibraryDisplayFieldKey
 import com.example.mylibrary.domain.model.LibraryItem
 import com.example.mylibrary.domain.model.LibraryViewMode
 import com.example.mylibrary.ui.library.LibraryItemsView
+import com.example.mylibrary.ui.library.LibraryTopBar
 import com.example.mylibrary.ui.settings.SettingsScreen
 import com.example.mylibrary.ui.settings.SettingsUiState
 import com.example.mylibrary.ui.theme.MyLibraryTheme
@@ -42,8 +44,9 @@ class Round4LPresentationTest {
 
         assertTopOrder(
             "settings_group_appearance",
+            "settings_group_customization",
+            "settings_group_export",
             "settings_group_data",
-            "settings_group_backup",
             "settings_group_about"
         )
         assertTopOrder("settings_layout", "settings_theme")
@@ -54,15 +57,37 @@ class Round4LPresentationTest {
         )
         composeRule.onNodeWithTag("settings_types").assertDoesNotExist()
         assertTopOrder(
-            "settings_import_data",
-            "settings_export_data",
             "settings_export_calendar",
             "settings_export_year_poster",
             "settings_export_monthly_report",
-            "settings_export_yearly_report",
+            "settings_export_yearly_report"
+        )
+        assertTopOrder(
+            "settings_export_data",
+            "settings_import_data",
             "settings_trash"
         )
         composeRule.onNodeWithTag("settings_about").assertExists()
+    }
+
+    @Test
+    fun libraryTopBarOnlyKeepsSearchAction() {
+        composeRule.setContent {
+            MyLibraryTheme {
+                LibraryTopBar(
+                    isSearchActive = false,
+                    isPageVisible = true,
+                    query = "",
+                    onQueryChange = {},
+                    onSearchOpen = {},
+                    onSearchClose = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("打开搜索").assertExists()
+        composeRule.onNodeWithContentDescription("导出当前封面海报")
+            .assertDoesNotExist()
     }
 
     @Test

@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.mylibrary.domain.model.LibraryTag
 import com.example.mylibrary.ui.components.AppCapsule
@@ -40,13 +41,12 @@ import com.example.mylibrary.ui.theme.AppTheme
 fun LibraryTagFilterSheet(
     tags: List<LibraryTag>,
     selectedIds: Set<Long>,
-    onApply: (Set<Long>) -> Unit,
+    onSelectionChange: (Set<Long>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val roots = tags.filter { it.parentId == null }
     val selected = tags.firstOrNull { it.id in selectedIds }
     var query by remember { mutableStateOf("") }
-    var temporarySelection by remember(selectedIds) { mutableStateOf(selectedIds) }
     var activeRootId by remember {
         mutableStateOf(selected?.parentId ?: selected?.id ?: roots.firstOrNull()?.id)
     }
@@ -93,13 +93,23 @@ fun LibraryTagFilterSheet(
                     style = AppTheme.typography.sectionTitle,
                     color = colors.textPrimary
                 )
-                Box(Modifier.size(40.dp))
+                Text(
+                    text = "清空",
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 12.dp)
+                        .testTag("library_tag_filter_clear")
+                        .noRippleClickable(
+                            enabled = selectedIds.isNotEmpty(),
+                            onClick = { onSelectionChange(emptySet()) }
+                        ),
+                    style = AppTheme.typography.button,
+                    color = if (selectedIds.isEmpty()) {
+                        colors.mutedText
+                    } else {
+                        colors.textPrimary
+                    }
+                )
             }
-            Text(
-                text = "已选择 ${temporarySelection.size} 个标签",
-                style = AppTheme.typography.metadata,
-                color = colors.textSecondary
-            )
 
             LibrarySearchField(
                 value = query,
@@ -114,6 +124,7 @@ fun LibraryTagFilterSheet(
                         AppCapsule(
                             text = root.name,
                             selected = root.id == activeRootId,
+                            modifier = Modifier.testTag("library_tag_root_${root.id}"),
                             onClick = {
                                 activeRootId = root.id
                                 query = ""
@@ -135,47 +146,21 @@ fun LibraryTagFilterSheet(
                     searchResult.visibleTags.forEach { tag ->
                         AppCapsule(
                             text = tag.name,
-                            selected = tag.id in temporarySelection,
+                            selected = tag.id in selectedIds,
+                            modifier = Modifier.testTag("library_tag_option_${tag.id}"),
                             onClick = {
-                                temporarySelection = temporarySelection.toggle(tag.id)
+                                onSelectionChange(toggleTagSelection(selectedIds, tag.id))
                             }
                         )
                     }
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "重置",
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp, vertical = 12.dp)
-                        .noRippleClickable { temporarySelection = emptySet() },
-                    style = AppTheme.typography.button,
-                    color = colors.textPrimary
-                )
-                Text(
-                    text = if (temporarySelection.isEmpty()) {
-                        "确定"
-                    } else {
-                        "确定（${temporarySelection.size}）"
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp, vertical = 12.dp)
-                        .noRippleClickable {
-                            onApply(temporarySelection)
-                            onDismiss()
-                        },
-                    style = AppTheme.typography.button,
-                    color = colors.textPrimary
-                )
-            }
         }
     }
 }
 
-private fun Set<Long>.toggle(id: Long): Set<Long> =
-    if (id in this) this - id else this + id
+internal fun toggleTagSelection(
+    selectedIds: Set<Long>,
+    tagId: Long
+): Set<Long> =
+    if (tagId in selectedIds) selectedIds - tagId else selectedIds + tagId

@@ -1,16 +1,15 @@
 package com.example.mylibrary.export.report
 
-import com.example.mylibrary.domain.model.FieldAggregation
-import com.example.mylibrary.domain.model.FieldDataType
-import com.example.mylibrary.domain.model.FieldNumberFormatter
+import com.example.mylibrary.data.entity.FieldDefinitionEntity
+import com.example.mylibrary.data.model.MediaItemStatisticsRow
+import com.example.mylibrary.data.model.StatisticFieldValueRow
+import com.example.mylibrary.data.repository.buildFixedMediaStatistics
+import com.example.mylibrary.data.repository.calculateCustomFieldStatistics
 import com.example.mylibrary.domain.model.FieldScope
-import com.example.mylibrary.domain.model.FieldValueParser
 import com.example.mylibrary.domain.model.ItemTypeKind
-import com.example.mylibrary.domain.model.activeFieldOptions
 import com.example.mylibrary.ui.settings.ReportExportConfig
-import com.example.mylibrary.ui.settings.ReportStatisticOption
-import java.math.BigDecimal
-import java.math.RoundingMode
+import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 sealed interface ReportPreparationResult {
@@ -32,23 +31,15 @@ class ReportDataResolver(
                 return ReportPreparationResult.InvalidConfig(result.message)
             is ReportConfigResolution.Success -> result.config
         }
-        val loadQuotes = resolved.includeQuotes ||
-            ReportStatisticOption.QUOTE_COUNT in resolved.basicStatistics
         val itemFieldIds = buildSet {
             resolved.workFields.mapTo(this) { it.fieldId }
-            resolved.statisticFields
-                .filter { it.scope == FieldScope.ITEM }
-                .mapTo(this) { it.fieldId }
+            resolved.statisticFields.mapTo(this) { it.fieldId }
         }
-        val recordFieldIds = resolved.statisticFields
-            .filter { it.scope == FieldScope.RECORD }
-            .mapTo(linkedSetOf()) { it.fieldId }
         val data = if (resolved.selectedItemTypeIds.isEmpty()) {
             ReportSourceData(
                 records = emptyList(),
                 activities = emptyList(),
                 itemFieldValues = emptyList(),
-                recordFieldValues = emptyList(),
                 itemTags = emptyList(),
                 quotes = emptyList()
             )
@@ -57,8 +48,7 @@ class ReportDataResolver(
                 range = resolved.period.epochRange(zoneId),
                 selectedItemTypeIds = resolved.selectedItemTypeIds,
                 itemFieldIds = itemFieldIds,
-                recordFieldIds = recordFieldIds,
-                includeQuotes = loadQuotes
+                includeQuotes = resolved.includeQuotes || resolved.includeBasicStatistics
             )
         }
         return ReportPreparationResult.Ready(buildSnapshot(resolved, data))
@@ -71,34 +61,20 @@ class ReportDataResolver(
         val itemValues = data.itemFieldValues.associateBy {
             it.ownerId to it.fieldId
         }
-        val recordValues = data.recordFieldValues.associateBy {
-            it.ownerId to it.fieldId
-        }
         val tagsByItem = data.itemTags.groupBy(ReportSourceItemTag::itemId)
-        val records = data.records.map { row ->
-            ReportRecordSnapshot(
-                recordId = row.recordId,
-                itemId = row.itemId,
-                startDate = row.startDate,
-                endDate = row.endDate,
-                ratingHalfStars = row.ratingHalfStars,
-                review = row.review,
-                customFields = config.statisticFields
-                    .filter {
-                        it.itemTypeId == row.typeId && it.scope == FieldScope.RECORD
-                    }
-                    .mapNotNull { field ->
-                        val raw = recordValues[row.recordId to field.fieldId]?.value
-                            ?: return@mapNotNull null
-                        fieldValueSnapshot(field, raw)
-                    }
-            )
-        }
+        val activityDatesByItem = data.activities
+            .groupBy(ReportSourceActivity::itemId)
+            .mapValues { (_, activities) ->
+                activities.map { localDate(it.date) }.distinct().sorted()
+            }
+        val records = data.records.sortedWith(recordOrder())
         val items = data.records
             .groupBy(ReportSourceRecord::itemId)
             .values
             .map { itemRecords ->
-                val item = itemRecords.first()
+                val orderedRecords = itemRecords.sortedWith(recordOrder())
+                val item = orderedRecords.first()
+                val activityDates = activityDatesByItem[item.itemId].orEmpty()
                 ReportItemSnapshot(
                     itemId = item.itemId,
                     typeId = item.typeId,
@@ -107,8 +83,13 @@ class ReportDataResolver(
                     title = item.title,
                     creator = item.creator,
                     coverPath = item.coverPath,
+                    currentStatusId = item.currentStatusId,
                     currentStatus = item.currentStatusName,
-                    tags = tagsByItem[item.itemId].orEmpty().map { it.name },
+                    currentStatusSortOrder = item.currentStatusSortOrder,
+                    tags = tagsByItem[item.itemId].orEmpty()
+                        .distinctBy { it.tagId }
+                        .sortedWith(compareBy({ it.sortOrder }, { it.tagId }))
+                        .map { it.name },
                     customFields = config.workFields
                         .filter { it.itemTypeId == item.typeId }
                         .mapNotNull { field ->
@@ -116,76 +97,106 @@ class ReportDataResolver(
                                 ?: return@mapNotNull null
                             fieldValueSnapshot(field, raw)
                         },
-                    recordIds = itemRecords.map { it.recordId }
+                    firstActivityDate = activityDates.firstOrNull()
+                        ?.atStartOfDay(zoneId)
+                        ?.toInstant()
+                        ?.toEpochMilli()
+                        ?: item.startDate,
+                    firstRecordCreatedAt = orderedRecords.first().recordCreatedAt,
+                    activityDayCount = activityDates.size,
+                    periodDurationMinutes = orderedRecords
+                        .mapNotNull(ReportSourceRecord::durationMinutes)
+                        .takeIf { it.isNotEmpty() }
+                        ?.sum()
                 )
             }
             .sortedWith(
-                compareBy<ReportItemSnapshot> {
-                    data.records.first { row -> row.itemId == it.itemId }.typeSortOrder
-                }.thenBy { it.title.lowercase() }.thenBy { it.itemId }
+                compareBy<ReportItemSnapshot> { it.firstActivityDate }
+                    .thenBy { it.firstRecordCreatedAt }
+                    .thenBy { it.itemId }
             )
-        val statistics = config.statisticFields.mapNotNull { field ->
-            val values = when (field.scope) {
-                FieldScope.ITEM -> data.itemFieldValues
-                    .filter { it.fieldId == field.fieldId }
-                    .map { it.value }
-                FieldScope.RECORD -> data.recordFieldValues
-                    .filter { it.fieldId == field.fieldId }
-                    .map { it.value }
-            }
-            calculateStatistic(field, values)
-        }
-        val selectedStatusIds = config.statusIds
-        val statusRows = data.records
-            .groupBy(ReportSourceRecord::itemId)
-            .values
-            .map(List<ReportSourceRecord>::first)
-            .filter { item ->
-                config.includeAllStatuses ||
-                    item.currentStatusId in selectedStatusIds
-            }
+        val selectedItemIds = items.mapTo(linkedSetOf()) { it.itemId }
+        val selectedActivities = data.activities.filter { it.itemId in selectedItemIds }
+        val selectedQuotes = data.quotes
+            .filter { it.itemId in selectedItemIds }
+            .sortedWith(
+                compareByDescending<ReportSourceQuote> { it.createdTime }
+                    .thenByDescending { it.quoteId }
+            )
+        val distinctTagBindings = data.itemTags
+            .filter { it.itemId in selectedItemIds }
+            .distinctBy { it.itemId to it.tagId }
+        val durationValues = records.mapNotNull(ReportSourceRecord::durationMinutes)
+
         val summary = ReportSummarySnapshot(
+            itemCount = items.size,
             readingItemCount = items.count { it.typeKind == ItemTypeKind.BOOK },
             viewingItemCount = items.count { it.typeKind == ItemTypeKind.MOVIE },
             recordCount = records.size,
-            activeDayCount = data.activities.map { it.date }.distinct().size,
-            quoteCount = data.quotes.size,
-            statusCounts = statusRows
-                .mapNotNull { it.currentStatusName }
-                .groupingBy(String::toString)
-                .eachCount()
-                .map { ReportNamedCount(it.key, it.value) }
-                .sortedWith(compareByDescending<ReportNamedCount> { it.count }.thenBy { it.name }),
-            tagCounts = items
-                .flatMap { item -> item.tags.distinct().map { it to item.itemId } }
-                .distinct()
-                .groupingBy { it.first }
-                .eachCount()
-                .map { ReportNamedCount(it.key, it.value) }
-                .sortedWith(compareByDescending<ReportNamedCount> { it.count }.thenBy { it.name }),
+            activeDayCount = selectedActivities.map { localDate(it.date) }.distinct().size,
+            quoteCount = selectedQuotes.size,
+            totalDurationMinutes = durationValues.takeIf { it.isNotEmpty() }?.sum(),
+            statusCounts = currentItemStatusCounts(items, config),
+            tagCounts = distinctTagBindings
+                .groupBy(ReportSourceItemTag::tagId)
+                .values
+                .map { bindings ->
+                    val tag = bindings.first()
+                    Triple(ReportNamedCount(tag.name, bindings.size), tag.sortOrder, tag.tagId)
+                }
+                .sortedWith(
+                    compareByDescending<Triple<ReportNamedCount, Int, Long>> {
+                        it.first.count
+                    }.thenBy { it.second }.thenBy { it.third }
+                )
+                .map { it.first },
             creatorCounts = items
                 .mapNotNull { it.creator?.trim()?.takeIf(String::isNotEmpty) }
                 .groupingBy { it }
                 .eachCount()
                 .map { ReportNamedCount(it.key, it.value) }
                 .sortedWith(compareByDescending<ReportNamedCount> { it.count }.thenBy { it.name }),
-            topActivityDays = data.activities
-                .groupingBy { it.date }
+            topActivityDays = selectedActivities
+                .groupingBy { localDate(it.date) }
                 .eachCount()
-                .map { ReportDateCount(it.key, it.value) }
+                .map {
+                    ReportDateCount(
+                        it.key.atStartOfDay(zoneId).toInstant().toEpochMilli(),
+                        it.value
+                    )
+                }
                 .sortedWith(
                     compareByDescending<ReportDateCount> { it.count }
                         .thenBy { it.date }
                 )
-                .take(3)
+        )
+        val recordsByItem = records.groupBy(ReportSourceRecord::itemId)
+        val quoteCountsByItem = selectedQuotes
+            .groupingBy(ReportSourceQuote::itemId)
+            .eachCount()
+        val mediaStatistics = buildFixedMediaStatistics(
+            items.map { item ->
+                val itemRecords = recordsByItem[item.itemId].orEmpty()
+                val valuedRecords = itemRecords.mapNotNull { it.durationMinutes }
+                MediaItemStatisticsRow(
+                    itemId = item.itemId,
+                    typeId = item.typeId,
+                    itemTitle = item.title,
+                    recordCount = itemRecords.size.toLong(),
+                    quoteCount = quoteCountsByItem[item.itemId]?.toLong() ?: 0L,
+                    valuedRecordCount = valuedRecords.size.toLong(),
+                    totalDurationMinutes = valuedRecords
+                        .takeIf { it.isNotEmpty() }
+                        ?.sum(),
+                    maximumSingleDurationMinutes = valuedRecords.maxOrNull()
+                )
+            }
         )
         return ReportDataSnapshot(
             config = config,
             summary = summary,
             items = items,
-            records = records,
-            statistics = statistics,
-            quotes = data.quotes.map {
+            quotes = selectedQuotes.map {
                 ReportQuoteSnapshot(
                     quoteId = it.quoteId,
                     itemId = it.itemId,
@@ -196,9 +207,203 @@ class ReportDataResolver(
                     page = it.page,
                     createdTime = it.createdTime
                 )
-            }
+            },
+            representativeItemId = items
+                .sortedWith(companionItemOrder())
+                .firstOrNull { it.coverPath?.isNotBlank() == true }
+                ?.itemId,
+            monthlySummaries = monthlySummaries(
+                config.period,
+                items,
+                selectedActivities,
+                records
+            ),
+            companionItems = items
+                .sortedWith(companionItemOrder())
+                .take(3)
+                .map {
+                    ReportCompanionSnapshot(
+                        itemId = it.itemId,
+                        title = it.title,
+                        creator = it.creator,
+                        activityDayCount = it.activityDayCount
+                    )
+                },
+            mediaStatistics = mediaStatistics,
+            customFieldStatistics = itemFieldStatistics(
+                config = config,
+                values = data.itemFieldValues.filter { it.ownerId in selectedItemIds }
+            )
         )
     }
+
+    private fun currentItemStatusCounts(
+        items: List<ReportItemSnapshot>,
+        config: ResolvedReportConfig
+    ): List<ReportNamedCount> {
+        val included = if (config.includeAllStatuses) {
+            items
+        } else {
+            items.filter {
+                it.currentStatusId?.let(config.statusIds::contains) == true
+            }
+        }
+        val resolved = included
+            .filter { it.currentStatusId != null }
+            .groupBy { requireNotNull(it.currentStatusId) }
+            .values
+            .map { statusItems ->
+                val item = statusItems.first()
+                Triple(
+                    ReportNamedCount(
+                        item.currentStatus
+                            ?.trim()
+                            ?.takeIf(String::isNotEmpty)
+                            ?: "状态不可用",
+                        statusItems.size
+                    ),
+                    item.currentStatusSortOrder ?: Int.MAX_VALUE,
+                    requireNotNull(item.currentStatusId)
+                )
+            }
+            .sortedWith(
+                compareBy<Triple<ReportNamedCount, Int, Long>> { it.second }
+                    .thenBy { it.third }
+            )
+            .map { it.first }
+        val unsetCount = included.count { it.currentStatusId == null }
+        return if (config.includeAllStatuses && unsetCount > 0) {
+            resolved + ReportNamedCount("未设置", unsetCount)
+        } else {
+            resolved
+        }
+    }
+
+    private fun itemFieldStatistics(
+        config: ResolvedReportConfig,
+        values: List<ReportSourceFieldValue>
+    ): List<ReportFieldStatisticGroup> {
+        if (!config.includeFieldStatistics) return emptyList()
+        return config.statisticFields
+            .groupBy(ResolvedReportField::itemTypeId)
+            .mapNotNull { (typeId, selectedFields) ->
+                val definitions = selectedFields
+                    .groupBy(ResolvedReportField::fieldId)
+                    .map { (_, selections) ->
+                        val field = selections.first()
+                        FieldDefinitionEntity(
+                            id = field.fieldId,
+                            typeId = field.itemTypeId,
+                            name = field.fieldName,
+                            dataType = field.fieldType,
+                            enabled = true,
+                            sortOrder = field.fieldSortOrder,
+                            isFixed = false,
+                            optionDefinitions = field.optionDefinitions,
+                            scope = FieldScope.ITEM,
+                            unit = field.unit,
+                            aggregations = selections.mapNotNullTo(linkedSetOf()) {
+                                it.aggregation
+                            }
+                        )
+                    }
+                val definitionIds = definitions.mapTo(hashSetOf()) { it.id }
+                val statistics = calculateCustomFieldStatistics(
+                    definitions = definitions,
+                    itemValues = values
+                        .filter { value -> value.fieldId in definitionIds }
+                        .map {
+                            StatisticFieldValueRow(
+                                fieldId = it.fieldId,
+                                ownerId = it.ownerId,
+                                value = it.value
+                            )
+                        },
+                    recordValues = emptyList()
+                )
+                statistics.takeIf { it.isNotEmpty() }?.let {
+                    ReportFieldStatisticGroup(
+                        typeId = typeId,
+                        typeKind = ItemTypeKind.fromTypeId(typeId),
+                        statistics = statistics
+                    )
+                }
+            }
+            .sortedWith(compareBy { it.typeKind.ordinal })
+    }
+
+    private fun monthlySummaries(
+        period: ReportPeriod,
+        items: List<ReportItemSnapshot>,
+        activities: List<ReportSourceActivity>,
+        records: List<ReportSourceRecord>
+    ): List<ReportMonthSnapshot> {
+        if (period !is ReportPeriod.Year) return emptyList()
+        val itemsById = items.associateBy(ReportItemSnapshot::itemId)
+        return (1..12).map { month ->
+            val monthRecords = records.filter {
+                localDate(it.startDate).monthValue == month
+            }
+            val monthByItem = activities
+                .filter { localDate(it.date).monthValue == month }
+                .groupBy(ReportSourceActivity::itemId)
+            val candidates: List<MonthlyRepresentativeCandidate> = monthByItem.keys
+                .mapNotNull { itemId ->
+                    val item = itemsById[itemId] ?: return@mapNotNull null
+                    val dates = monthByItem[itemId].orEmpty()
+                        .map { localDate(it.date) }
+                        .distinct()
+                    val firstDate = dates.minOrNull()
+                        ?: return@mapNotNull null
+                    MonthlyRepresentativeCandidate(
+                        item = item,
+                        activityDayCount = dates.size,
+                        firstDate = firstDate
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<MonthlyRepresentativeCandidate> {
+                        it.activityDayCount
+                    }.thenBy { it.firstDate }.thenBy { it.item.itemId }
+                )
+            ReportMonthSnapshot(
+                month = month,
+                itemCount = (
+                    monthByItem.keys +
+                        monthRecords.map(ReportSourceRecord::itemId)
+                    ).distinct().size,
+                recordCount = monthRecords.size,
+                totalDurationMinutes = monthRecords
+                    .mapNotNull(ReportSourceRecord::durationMinutes)
+                    .takeIf { it.isNotEmpty() }
+                    ?.sum(),
+                representativeItemId = candidates
+                    .firstOrNull { it.item.coverPath?.isNotBlank() == true }
+                    ?.item
+                    ?.itemId,
+                representativeCandidateItemIds = candidates.map { it.item.itemId }
+            )
+        }
+    }
+
+    private data class MonthlyRepresentativeCandidate(
+        val item: ReportItemSnapshot,
+        val activityDayCount: Int,
+        val firstDate: LocalDate
+    )
+
+    private fun recordOrder(): Comparator<ReportSourceRecord> =
+        compareBy<ReportSourceRecord> { it.startDate }
+            .thenBy { it.recordCreatedAt }
+            .thenBy { it.recordId }
+
+    private fun companionItemOrder(): Comparator<ReportItemSnapshot> =
+        compareByDescending<ReportItemSnapshot> { it.activityDayCount }
+            .thenBy { it.firstActivityDate }
+            .thenBy { it.itemId }
+
+    private fun localDate(epochMillis: Long): LocalDate =
+        Instant.ofEpochMilli(epochMillis).atZone(zoneId).toLocalDate()
 
     private fun fieldValueSnapshot(
         field: ResolvedReportField,
@@ -207,146 +412,4 @@ class ReportDataResolver(
         ReportFieldValueFormatter.formatFieldValue(field, raw)?.let { formatted ->
             ReportFieldValueSnapshot(field, raw, formatted)
         }
-
-    private fun calculateStatistic(
-        field: ResolvedReportField,
-        rawValues: List<String>
-    ): ReportStatisticResult? {
-        val aggregation = requireNotNull(field.aggregation)
-        return when (field.fieldType) {
-            FieldDataType.NUMBER -> numericStatistic(field, aggregation, rawValues)
-            FieldDataType.SINGLE_SELECT,
-            FieldDataType.MULTI_SELECT ->
-                optionStatistic(field, aggregation, rawValues)
-            FieldDataType.RATING -> ratingStatistic(field, aggregation, rawValues)
-            FieldDataType.TEXT,
-            FieldDataType.DATE,
-            FieldDataType.BOOLEAN -> null
-        }
-    }
-
-    private fun numericStatistic(
-        field: ResolvedReportField,
-        aggregation: FieldAggregation,
-        rawValues: List<String>
-    ): ReportStatisticResult? {
-        val nonBlank = rawValues.filterNot(String::isBlank)
-        val numbers = nonBlank.mapNotNull(FieldValueParser::parseNumber)
-        if (numbers.isEmpty()) return null
-        val sum = numbers.fold(BigDecimal.ZERO, BigDecimal::add)
-        val value = when (aggregation) {
-            FieldAggregation.SUM -> sum
-            FieldAggregation.AVERAGE -> sum.divide(
-                BigDecimal(numbers.size),
-                12,
-                RoundingMode.HALF_UP
-            )
-            FieldAggregation.MAXIMUM -> requireNotNull(numbers.maxOrNull())
-            FieldAggregation.MINIMUM -> requireNotNull(numbers.minOrNull())
-            else -> return null
-        }
-        return ReportStatisticResult(
-            field = field,
-            aggregation = aggregation,
-            rawResult = ReportStatisticValue.Number(
-                value = value,
-                validValueCount = numbers.size,
-                invalidValueCount = nonBlank.size - numbers.size
-            ),
-            formattedValue = ReportFieldValueFormatter.formatStatisticNumber(
-                field,
-                aggregation,
-                value
-            )
-        )
-    }
-
-    private fun optionStatistic(
-        field: ResolvedReportField,
-        aggregation: FieldAggregation,
-        rawValues: List<String>
-    ): ReportStatisticResult? {
-        if (aggregation != FieldAggregation.OPTION_DISTRIBUTION) return null
-        val activeOptions = field.optionDefinitions.activeFieldOptions()
-        val activeIds = activeOptions.mapTo(mutableSetOf()) { it.id }
-        val counts = mutableMapOf<Long, Int>()
-        var invalidCount = 0
-        rawValues.filterNot(String::isBlank).forEach { raw ->
-            val parsed = FieldValueParser.optionIds(
-                raw,
-                field.fieldType,
-                field.optionDefinitions
-            ).distinct().filter { it in activeIds }
-            if (parsed.isEmpty()) invalidCount += 1
-            parsed.forEach { id -> counts[id] = counts.getOrDefault(id, 0) + 1 }
-        }
-        val entries = activeOptions
-            .mapNotNull { option ->
-                counts[option.id]?.takeIf { it > 0 }?.let { count ->
-                    Triple(option.name, count, option.sortOrder)
-                }
-            }
-            .sortedWith(
-                compareByDescending<Triple<String, Int, Int>> { it.second }
-                    .thenBy { it.third }
-                    .thenBy { it.first }
-            )
-            .map { ReportDistributionEntry(it.first, it.second) }
-        if (entries.isEmpty()) return null
-        return ReportStatisticResult(
-            field = field,
-            aggregation = aggregation,
-            rawResult = ReportStatisticValue.Distribution(entries, invalidCount),
-            formattedValue = entries.joinToString("  ") { "${it.key} ${it.count}" }
-        )
-    }
-
-    private fun ratingStatistic(
-        field: ResolvedReportField,
-        aggregation: FieldAggregation,
-        rawValues: List<String>
-    ): ReportStatisticResult? {
-        val nonBlank = rawValues.filterNot(String::isBlank)
-        val values = nonBlank.mapNotNull(FieldValueParser::parseRatingHalfStars)
-        if (values.isEmpty()) return null
-        return when (aggregation) {
-            FieldAggregation.RATING_AVERAGE -> {
-                val average = BigDecimal(values.sum()).divide(
-                    BigDecimal(values.size * 2L),
-                    12,
-                    RoundingMode.HALF_UP
-                )
-                ReportStatisticResult(
-                    field = field,
-                    aggregation = aggregation,
-                    rawResult = ReportStatisticValue.Number(
-                        average,
-                        values.size,
-                        nonBlank.size - values.size
-                    ),
-                    formattedValue = FieldNumberFormatter.formatGrouped(average)
-                )
-            }
-            FieldAggregation.RATING_DISTRIBUTION -> {
-                val entries = (10 downTo 1).map { halfStars ->
-                    val label = FieldNumberFormatter.formatGrouped(
-                        BigDecimal(halfStars).divide(BigDecimal(2))
-                    ) + " 星"
-                    ReportDistributionEntry(label, values.count { it == halfStars })
-                }
-                ReportStatisticResult(
-                    field = field,
-                    aggregation = aggregation,
-                    rawResult = ReportStatisticValue.Distribution(
-                        entries,
-                        nonBlank.size - values.size
-                    ),
-                    formattedValue = entries.joinToString("  ") {
-                        "${it.key} ${it.count}"
-                    }
-                )
-            }
-            else -> null
-        }
-    }
 }

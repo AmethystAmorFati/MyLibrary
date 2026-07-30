@@ -1,31 +1,34 @@
 package com.example.mylibrary.export.report
 
-import com.example.mylibrary.domain.model.FieldAggregation
+import com.example.mylibrary.domain.model.CustomFieldStatistic
+import com.example.mylibrary.domain.model.FixedMediaStatistics
 import com.example.mylibrary.domain.model.ItemTypeKind
-import java.math.BigDecimal
+import com.example.mylibrary.export.calendar.CalendarExportSnapshot
 
 data class ReportDataSnapshot(
     val config: ResolvedReportConfig,
     val summary: ReportSummarySnapshot,
     val items: List<ReportItemSnapshot>,
-    val records: List<ReportRecordSnapshot>,
-    val statistics: List<ReportStatisticResult>,
-    val quotes: List<ReportQuoteSnapshot>
+    val quotes: List<ReportQuoteSnapshot>,
+    val representativeItemId: Long?,
+    val monthlySummaries: List<ReportMonthSnapshot>,
+    val companionItems: List<ReportCompanionSnapshot>,
+    val mediaStatistics: FixedMediaStatistics,
+    val customFieldStatistics: List<ReportFieldStatisticGroup>,
+    val annualCalendarSnapshots: List<CalendarExportSnapshot> = emptyList()
 ) {
     val isEmpty: Boolean
-        get() = items.isEmpty() &&
-            records.isEmpty() &&
-            quotes.isEmpty() &&
-            statistics.isEmpty() &&
-            summary.activeDayCount == 0
+        get() = items.isEmpty()
 }
 
 data class ReportSummarySnapshot(
+    val itemCount: Int,
     val readingItemCount: Int,
     val viewingItemCount: Int,
     val recordCount: Int,
     val activeDayCount: Int,
     val quoteCount: Int,
+    val totalDurationMinutes: Long?,
     val statusCounts: List<ReportNamedCount>,
     val tagCounts: List<ReportNamedCount>,
     val creatorCounts: List<ReportNamedCount>,
@@ -56,47 +59,50 @@ data class ReportItemSnapshot(
     val title: String,
     val creator: String?,
     val coverPath: String?,
+    val resolvedCoverWidth: Int? = null,
+    val resolvedCoverHeight: Int? = null,
+    val currentStatusId: Long?,
     val currentStatus: String?,
+    val currentStatusSortOrder: Int?,
     val tags: List<String>,
     val customFields: List<ReportFieldValueSnapshot>,
-    val recordIds: List<Long>
-)
-
-data class ReportRecordSnapshot(
-    val recordId: Long,
-    val itemId: Long,
-    val startDate: Long,
-    val endDate: Long?,
-    val ratingHalfStars: Int?,
-    val review: String?,
-    val customFields: List<ReportFieldValueSnapshot>
-)
-
-data class ReportStatisticResult(
-    val field: ResolvedReportField,
-    val aggregation: FieldAggregation,
-    val rawResult: ReportStatisticValue,
-    val formattedValue: String
-)
-
-sealed interface ReportStatisticValue {
-    val invalidValueCount: Int
-
-    data class Number(
-        val value: BigDecimal,
-        val validValueCount: Int,
-        override val invalidValueCount: Int
-    ) : ReportStatisticValue
-
-    data class Distribution(
-        val entries: List<ReportDistributionEntry>,
-        override val invalidValueCount: Int
-    ) : ReportStatisticValue
+    val firstActivityDate: Long,
+    val firstRecordCreatedAt: Long,
+    val activityDayCount: Int,
+    val periodDurationMinutes: Long? = null
+) {
+    val resolvedCoverAspectRatio: Double?
+        get() {
+            val width = resolvedCoverWidth ?: return null
+            val height = resolvedCoverHeight ?: return null
+            return if (width > 0 && height > 0) {
+                width.toDouble() / height.toDouble()
+            } else {
+                null
+            }
+        }
 }
 
-data class ReportDistributionEntry(
-    val key: String,
-    val count: Int
+data class ReportMonthSnapshot(
+    val month: Int,
+    val itemCount: Int,
+    val recordCount: Int = 0,
+    val totalDurationMinutes: Long? = null,
+    val representativeItemId: Long?,
+    val representativeCandidateItemIds: List<Long> = emptyList()
+)
+
+data class ReportCompanionSnapshot(
+    val itemId: Long,
+    val title: String,
+    val creator: String?,
+    val activityDayCount: Int
+)
+
+data class ReportFieldStatisticGroup(
+    val typeId: Long,
+    val typeKind: ItemTypeKind,
+    val statistics: List<CustomFieldStatistic>
 )
 
 data class ReportQuoteSnapshot(

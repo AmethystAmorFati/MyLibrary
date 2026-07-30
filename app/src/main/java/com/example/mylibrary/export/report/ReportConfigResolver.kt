@@ -4,6 +4,7 @@ import com.example.mylibrary.domain.model.DynamicFieldDefinition
 import com.example.mylibrary.domain.model.FieldAggregation
 import com.example.mylibrary.domain.model.FieldScope
 import com.example.mylibrary.domain.model.ItemType
+import com.example.mylibrary.domain.model.ItemTypeKind
 import com.example.mylibrary.domain.model.compatibleWith
 import com.example.mylibrary.ui.settings.EMPTY_REPORT_CONTENT_MESSAGE
 import com.example.mylibrary.ui.settings.MAX_REPORT_WORK_CUSTOM_FIELDS
@@ -22,16 +23,20 @@ class ReportConfigResolver {
         itemTypes: List<ItemType>,
         fields: List<DynamicFieldDefinition>
     ): ReportConfigResolution {
-        val period = resolvePeriod(source) ?: return ReportConfigResolution.Invalid(
+        val normalizedSource = source.normalized()
+        val period = resolvePeriod(normalizedSource) ?: return ReportConfigResolution.Invalid(
             "报告年月无效"
         )
-        val orderedTypes = itemTypes.sortedWith(
-            compareBy<ItemType> { it.sortOrder }.thenBy { it.id }
-        )
-        val selectedTypes = if (source.typeId == null) {
+        val orderedTypes = itemTypes
+            .filter {
+                it.id == ItemTypeKind.BOOK_TYPE_ID ||
+                    it.id == ItemTypeKind.MOVIE_TYPE_ID
+            }
+            .sortedWith(compareBy<ItemType> { it.sortOrder }.thenBy { it.id })
+        val selectedTypes = if (normalizedSource.typeId == null) {
             orderedTypes
         } else {
-            orderedTypes.filter { it.id == source.typeId }
+            orderedTypes.filter { it.id == normalizedSource.typeId }
         }
         val selectedTypeIds = selectedTypes.mapTo(linkedSetOf()) { it.id }
         val typeById = selectedTypes.associateBy(ItemType::id)
@@ -47,18 +52,20 @@ class ReportConfigResolver {
 
         val workFields = orderedFields
             .asSequence()
-            .filter { it.id in source.workCustomFieldIds }
+            .filter { it.id in normalizedSource.workCustomFieldIds }
             .filter { it.enabled && !it.isFixed && it.scope == FieldScope.ITEM }
             .take(MAX_REPORT_WORK_CUSTOM_FIELDS)
             .map { field -> field.resolve(typeById, aggregation = null) }
             .toList()
 
         val fieldById = orderedFields.associateBy(DynamicFieldDefinition::id)
-        val statisticFields = source.statisticSelections
+        val statisticFields = normalizedSource.statisticSelections
             .asSequence()
             .mapNotNull { selection ->
                 val field = fieldById[selection.fieldId] ?: return@mapNotNull null
-                if (!field.enabled || field.isFixed) return@mapNotNull null
+                if (!field.enabled || field.isFixed || field.scope != FieldScope.ITEM) {
+                    return@mapNotNull null
+                }
                 val allowed = field.aggregations.compatibleWith(field.dataType)
                 if (selection.aggregation !in allowed) return@mapNotNull null
                 field.resolve(typeById, selection.aggregation)
@@ -74,17 +81,30 @@ class ReportConfigResolver {
         val resolved = ResolvedReportConfig(
             period = period,
             selectedItemTypeIds = selectedTypeIds,
-            basicStatistics = source.statistics.toCollection(linkedSetOf()),
+            basicStatistics = normalizedSource.statistics.toCollection(linkedSetOf()),
             workFields = workFields,
             statisticFields = statisticFields,
-            includeCover = ReportWorkOption.COVER in source.workFields,
-            includeTitle = ReportWorkOption.TITLE in source.workFields,
-            includeCreator = ReportWorkOption.CREATOR in source.workFields,
-            includeStatus = ReportWorkOption.STATUS in source.workFields,
-            includeTags = ReportWorkOption.TAGS in source.workFields,
-            includeQuotes = source.includeQuotes,
-            includeAllStatuses = source.includeAllStatuses,
-            statusIds = source.statusIds.toCollection(linkedSetOf())
+            includeCover = ReportWorkOption.COVER in normalizedSource.workFields,
+            includeTitle = ReportWorkOption.TITLE in normalizedSource.workFields,
+            includeCreator = ReportWorkOption.CREATOR in normalizedSource.workFields,
+            includeStatus = ReportWorkOption.STATUS in normalizedSource.workFields,
+            includeTags = ReportWorkOption.TAGS in normalizedSource.workFields,
+            includeQuotes = normalizedSource.includeQuotes,
+            includeAllStatuses = normalizedSource.includeAllStatuses,
+            statusIds = normalizedSource.statusIds.toCollection(linkedSetOf()),
+            includeBasicStatistics = normalizedSource.includeBasicStatistics,
+            includeTagStatistics = normalizedSource.includeTagStatistics,
+            includeFieldStatistics =
+                normalizedSource.includeFieldStatistics && statisticFields.isNotEmpty(),
+            includeItemInformation =
+                normalizedSource.includeItemInformation &&
+                    normalizedSource.workFields.isNotEmpty(),
+            includeItemFields =
+                normalizedSource.includeItemFields && workFields.isNotEmpty(),
+            includeItemStatusStatistics =
+                normalizedSource.includeItemStatusStatistics,
+            showcaseStyle = normalizedSource.showcaseStyle,
+            outputFormat = normalizedSource.outputFormat
         )
         return if (resolved.hasContent()) {
             ReportConfigResolution.Success(resolved)
@@ -112,7 +132,6 @@ class ReportConfigResolver {
             itemTypeSortOrder = type.sortOrder,
             fieldName = name,
             fieldType = dataType,
-            scope = scope,
             unit = unit,
             aggregation = aggregation,
             fieldSortOrder = sortOrder,

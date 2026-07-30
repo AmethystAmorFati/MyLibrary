@@ -145,7 +145,8 @@ object ThemeResolver {
                 typography = createAppTypography(fontResolver),
                 fontResolver = fontResolver,
                 navigationIconResolver = navigationIconResolver,
-                darkSystemBarIcons = manifest.darkSystemBarIcons
+                darkSystemBarIcons = manifest.darkSystemBarIcons,
+                themeGeneration = themeGeneration
             )
         )
     }

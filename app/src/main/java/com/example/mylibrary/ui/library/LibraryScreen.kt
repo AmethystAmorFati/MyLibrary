@@ -1,6 +1,5 @@
 package com.example.mylibrary.ui.library
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,18 +9,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import com.example.mylibrary.domain.model.LibraryViewMode
 import com.example.mylibrary.ui.components.MainPageLayout
-import com.example.mylibrary.ui.poster.CoverPosterExporter
-import com.example.mylibrary.ui.poster.rememberCoverPosterThemeSnapshot
 import com.example.mylibrary.ui.theme.AppTheme
-import kotlinx.coroutines.launch
 
 internal object LibraryPresentationPolicy {
     const val usesAlphaTransition = false
@@ -46,31 +40,6 @@ fun LibraryScreen(
 ) {
     var showTagFilter by remember { mutableStateOf(false) }
     var showListFields by remember { mutableStateOf(false) }
-    var isPosterExporting by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val posterPalette = rememberCoverPosterThemeSnapshot()
-    val exportPoster = {
-        if (!isPosterExporting && uiState.items.isNotEmpty()) {
-            val items = uiState.items.toList()
-            isPosterExporting = true
-            scope.launch {
-                runCatching {
-                    CoverPosterExporter.createShareUri(context, items, posterPalette)
-                }.onSuccess { uri ->
-                    context.startActivity(CoverPosterExporter.shareIntent(context, uri))
-                }.onFailure { error ->
-                    Toast.makeText(
-                        context,
-                        error.message ?: "封面海报导出失败",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-                isPosterExporting = false
-            }
-        }
-    }
-
     LaunchedEffect(
         isPageVisible,
         uiState.isSearchActive,
@@ -97,10 +66,7 @@ fun LibraryScreen(
                 query = uiState.query,
                 onQueryChange = onQueryChange,
                 onSearchOpen = onSearchOpen,
-                onSearchClose = onSearchClose,
-                onPosterExport = exportPoster,
-                isPosterExporting = isPosterExporting,
-                canExportPoster = uiState.items.isNotEmpty()
+                onSearchClose = onSearchClose
             )
             LibraryFilterBar(
                 statuses = uiState.statuses,
@@ -115,6 +81,11 @@ fun LibraryScreen(
                     onViewModeSelected(next)
                 },
                 onConfigureList = { showListFields = true }
+            )
+            LibrarySelectedTagFilterRow(
+                tags = uiState.tags,
+                selectedIds = uiState.selectedTagIds,
+                onSelectionChange = onTagsSelected
             )
             if (
                 LibraryPresentationPolicy.shouldShowEmpty(
@@ -158,7 +129,7 @@ fun LibraryScreen(
         LibraryTagFilterSheet(
             tags = uiState.tags,
             selectedIds = uiState.selectedTagIds,
-            onApply = onTagsSelected,
+            onSelectionChange = onTagsSelected,
             onDismiss = { showTagFilter = false }
         )
     }

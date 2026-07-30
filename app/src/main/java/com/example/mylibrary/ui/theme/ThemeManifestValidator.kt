@@ -121,23 +121,32 @@ object ThemeManifestValidator {
                     )
                     return
                 }
-                val (prefix, extensions) = when (role) {
+                val extensions = when (role) {
                     SurfaceRole.BACKGROUND -> {
-                        ThemeResourceLimits.BACKGROUND_SURFACE_PREFIX to
-                            ThemeResourceLimits.BACKGROUND_IMAGE_EXTENSIONS
+                        ThemeResourceLimits.BACKGROUND_IMAGE_EXTENSIONS
                     }
 
                     SurfaceRole.CARD -> {
-                        ThemeResourceLimits.CARD_SURFACE_PREFIX to
-                            ThemeResourceLimits.COMMON_IMAGE_EXTENSIONS
+                        ThemeResourceLimits.COMMON_IMAGE_EXTENSIONS
                     }
 
                     SurfaceRole.DIALOG -> {
-                        ThemeResourceLimits.DIALOG_SURFACE_PREFIX to
-                            ThemeResourceLimits.COMMON_IMAGE_EXTENSIONS
+                        ThemeResourceLimits.COMMON_IMAGE_EXTENSIONS
                     }
                 }
-                validateResourcePath("$field.file", file, prefix, extensions, issues)
+                validateResourcePath(
+                    "$field.file",
+                    file,
+                    ThemeResourceLimits.SURFACE_PREFIX,
+                    extensions,
+                    issues
+                )
+                if (!ThemeResourceLimits.isAllowedSurfaceImagePath(role, file)) {
+                    issues += ThemeValidationIssue(
+                        "$field.file",
+                        "Surface image path must match the $role role"
+                    )
+                }
             }
         }
     }
